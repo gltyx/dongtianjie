@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <!-- Google tag (gtag.js) -->
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag() { dataLayer.push(arguments); }
+        gtag('js', new Date());
+
+        gtag('config', 'G-8HZ96T7NQD');
+    </script>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Noto+Sans+SC:wght@400;500;600;700&family=ZCOOL+XiaoWei&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./assets/css/all.min.css">
+    <link rel="stylesheet" href="./assets/css/rpg-awesome.min.css">
+    <link rel="stylesheet" href="./assets/css/style.css">
+    <link rel="icon" type="image/png" href="./assets/icon/favicon.png">
+    <title>洞天劫</title>
+</head>
+
+<body>
+<script src="assets/js/cnkey.js"></script>
+<script src="assets/js/transcore.js"></script>
+    <main class="app-root">
+        <!-- Hub -->
+        <section id="dungeon-main" class="game-container scrollable screen screen--hub app-panel">
+            <div class="hub-layout">
+                <div class="hub-layout__primary">
+                <header class="hub-layout__header hud-bar">
+                    <div class="hud-bar__main">
+                        <div class="hud-bar__avatar" aria-hidden="true"></div>
+                        <div class="hud-bar__identity">
+                            <div class="hud-bar__titles">
+                                <p id="player-name" class="hud-name"></p>
+                                <p id="player-realm" class="hud-realm"></p>
+                                <p id="player-sect" class="hud-sect" aria-label="门派"></p>
+                            </div>
+                            <div class="hud-bar__meta">
+                                <p id="player-exp" class="hud-pill hud-pill--exp"></p>
+                                <p id="player-gold" class="hud-pill hud-pill--gold"></p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="hud-bar__actions">
+                        <button type="button" class="btn btn--accent hud-bar__skills" onclick="openSectPassivesModal()">功法</button>
+                        <button type="button" class="btn btn--accent hud-bar__inv" onclick="openInventory()">行囊</button>
+                        <button type="button" class="btn btn--ghost hud-bar__pet" onclick="openPetModal()">灵宠</button>
+                        <button type="button" id="menu-btn" class="btn btn--ghost hud-bar__menu">卷宗</button>
+                    </div>
+                </header>
+
+                <section class="hub-layout__run run-bar" aria-label="秘境行进">
+                    <div class="run-bar__grid">
+                        <p id="dungeonTime" class="run-bar__cell run-bar__cell--time"></p>
+                        <p id="floorCount" class="run-bar__cell run-bar__cell--floor"></p>
+                        <p id="roomCount" class="run-bar__cell run-bar__cell--room"></p>
+                        <div class="run-bar__actions">
+                            <button type="button" id="dungeonActivity" class="btn btn--sm btn--primary run-bar__action"></button>
+                        </div>
+                    </div>
+                </section>
+                <section class="hub-layout__run-extra" aria-label="红尘押镖与地脉奇遇">
+                    <div class="run-bar__extra-actions" id="runBarExtraActions"></div>
+                </section>
+
+                <section class="hub-layout__stats stat-panel hub-stats" aria-label="角色属性">
+                    <div class="box card stat-card">
+                        <h4 class="card__title">道体属性</h4>
+                        <div class="stat-card__body">
+                            <p><i class="fas fa-heart"></i><span class="stat-card__lbl">气血</span><span id="player-hp" class="stat-card__val"></span></p>
+                            <p><i class="ra ra-sword"></i><span class="stat-card__lbl">力道</span><span id="player-atk" class="stat-card__val"></span></p>
+                            <p><i class="ra ra-round-shield"></i><span class="stat-card__lbl">护体</span><span id="player-def" class="stat-card__val"></span></p>
+                            <p><i class="ra ra-plain-dagger"></i><span class="stat-card__lbl">身法</span><span id="player-atkspd" class="stat-card__val"></span></p>
+                            <p><i class="ra ra-dripping-blade"></i><span class="stat-card__lbl">吸血</span><span id="player-vamp" class="stat-card__val"></span></p>
+                            <p><i class="ra ra-lightning-bolt"></i><span class="stat-card__lbl">会心</span><span id="player-crate" class="stat-card__val"></span></p>
+                            <p><i class="ra ra-focused-lightning"></i><span class="stat-card__lbl">暴伤</span><span id="player-cdmg" class="stat-card__val"></span></p>
+                        </div>
+                    </div>
+                    <div class="box card stat-card" id="bonus-stats"></div>
+                </section>
+                </div>
+
+                <section class="hub-layout__log logBox primary-panel log-panel" aria-label="历练纪闻">
+                    <div class="log-panel__head">
+                        <h2 class="log-panel__heading">历练纪闻</h2>
+                        <p id="dungeonAction" class="log-panel__status"></p>
+                    </div>
+                    <div id="dungeonLog" class="log-panel__scroll"></div>
+                </section>
+            </div>
+        </section>
+
+        <!-- Loading -->
+        <div id="loading" class="game-container screen screen--loading app-panel">
+            <div class="loading-layout">
+                <div class="loader" role="status" aria-label="洞天加载中"></div>
+                <p class="loading-text">洞天加载中…</p>
+            </div>
+        </div>
+
+        <!-- Modals -->
+        <div class="modal-container" id="inventory">
+            <div class="content modal-sheet modal-sheet--inventory">
+                <header class="content-head modal-sheet__head modal-sheet__head--inv">
+                    <div class="modal-sheet__head-text">
+                        <p class="modal-sheet__eyebrow modal-sheet__eyebrow--inv">须弥藏芥</p>
+                        <h3>行囊</h3>
+                        <p class="modal-sheet__sub">纳遗器灵宝，随念取用</p>
+                    </div>
+                    <button type="button" class="icon-btn icon-btn--inv-close" onclick="closeInventory()" title="关闭" aria-label="关闭"><i class="fa fa-xmark"></i></button>
+                </header>
+                <div class="inv-tabs" role="tablist" aria-label="行囊分页">
+                    <button type="button" class="inv-tab inv-tab--active" id="inv-tab-btn-equip" role="tab" aria-selected="true" data-inv-tab="equip">装备</button>
+                    <button type="button" class="inv-tab" id="inv-tab-btn-mat" role="tab" aria-selected="false" data-inv-tab="mat">材料</button>
+                    <button type="button" class="inv-tab" id="inv-tab-btn-gem" role="tab" aria-selected="false" data-inv-tab="gem">宝石</button>
+                </div>
+                <div id="invSplitEquip" class="inv-split inv-split--equip">
+                <div class="inv-toolbar">
+                    <div class="inv-toolbar__group inv-toolbar__group--sell">
+                        <span class="inv-toolbar__label">典让</span>
+                        <button type="button" id="sell-all" class="btn btn--sm btn--ghost inv-toolbar__sell">批量典让</button>
+                        <label class="inv-auto-batch" title="开启后，每次获得遗器将按「品阶筛选」自动典让（已锁定除外，无确认弹窗）">
+                            <input type="checkbox" id="inv-auto-batch-sell" class="inv-auto-batch__input" aria-label="自动批量典让" />
+                            <span class="inv-auto-batch__track" aria-hidden="true"></span>
+                            <span class="inv-auto-batch__text">自动典让</span>
+                        </label>
+                    </div>
+                    <label class="inv-toolbar__filter">
+                        <span class="inv-toolbar__filter-lbl">品阶筛选</span>
+                        <select id="sell-rarity" class="select-field select-field--inv" aria-label="典让品阶筛选">
+                            <option class="Common" value="Common">凡尘器</option>
+                            <option class="Uncommon" value="Uncommon">蕴灵胚</option>
+                            <option class="Rare" value="Rare">玄纹铸</option>
+                            <option class="Epic" value="Epic">地脉珍</option>
+                            <option class="Legendary" value="Legendary">天敕珍</option>
+                            <option class="Heirloom" value="Heirloom">古遗宝</option>
+                            <option class="Etherbound" value="Etherbound">界壁宝</option>
+                            <option class="StellarSign" value="StellarSign">星斗印</option>
+                            <option class="Nullforge" value="Nullforge">太虚胚</option>
+                            <option class="Chronarch" value="Chronarch">光阴器</option>
+                            <option class="Apexother" value="Apexother">劫外道兵</option>
+                            <option class="Common" value="All">诸阶尽收</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="inv-toolbar inv-toolbar--view" aria-label="行囊检视">
+                    <label class="inv-toolbar__filter">
+                        <span class="inv-toolbar__filter-lbl">检视品阶</span>
+                        <select id="inv-view-rarity" class="select-field select-field--inv Common" aria-label="行囊检视品阶">
+                            <option class="Common" value="All">诸阶尽收</option>
+                            <option class="Common" value="Common">凡尘器</option>
+                            <option class="Uncommon" value="Uncommon">蕴灵胚</option>
+                            <option class="Rare" value="Rare">玄纹铸</option>
+                            <option class="Epic" value="Epic">地脉珍</option>
+                            <option class="Legendary" value="Legendary">天敕珍</option>
+                            <option class="Heirloom" value="Heirloom">古遗宝</option>
+                            <option class="Etherbound" value="Etherbound">界壁宝</option>
+                            <option class="StellarSign" value="StellarSign">星斗印</option>
+                            <option class="Nullforge" value="Nullforge">太虚胚</option>
+                            <option class="Chronarch" value="Chronarch">光阴器</option>
+                            <option class="Apexother" value="Apexother">劫外道兵</option>
+                        </select>
+                    </label>
+                    <label class="inv-toolbar__filter">
+                        <span class="inv-toolbar__filter-lbl">检视种类</span>
+                        <select id="inv-view-type" class="select-field select-field--inv" aria-label="行囊检视种类">
+                            <option value="All">诸器</option>
+                            <option value="Weapon">武器</option>
+                            <option value="Armor">护甲</option>
+                            <option value="Shield">盾</option>
+                            <option value="Helmet">头盔</option>
+                            <option value="Ring">戒指</option>
+                            <option value="Necklace">项链</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="inv-body">
+                    <section class="inv-panel inv-panel--bag" aria-label="背包遗器">
+                        <div class="inv-panel__hd">
+                            <div class="inv-panel__title-row">
+                                <span class="inv-panel__title">囊中之物</span>
+                                <span class="inv-panel__cap" id="invBagCap" aria-live="polite"></span>
+                            </div>
+                            <span class="inv-panel__hint">点击检视 · 可披甲 · 角标可锁定（锁定后不可典让）</span>
+                        </div>
+                        <div class="inventorySlots inv-grid scrollable" id="playerInventory"></div>
+                    </section>
+                    <section class="inv-panel inv-panel--wear" aria-label="已装备">
+                        <div class="inv-equip-card">
+                            <div class="inv-equip-card__hd">
+                                <div>
+                                    <span class="inv-equip-card__eyebrow">气海相连</span>
+                                    <h4 class="inv-equip-card__title">身负之器</h4>
+                                </div>
+                                <button type="button" class="icon-btn icon-btn--unequip-all" id="unequip-all" title="尽数卸下" aria-label="尽数卸下"><i class="fa fa-circle-xmark"></i></button>
+                            </div>
+                            <p class="inv-equip-card__hint">武器、护甲、盾、头盔、戒指、项链各限一件；同类型新装会换下旧件回行囊。点按已装备可褪下。</p>
+                            <div id="playerEquipment" class="equip-strip equip-strip--inv"></div>
+                        </div>
+                    </section>
+                </div>
+                </div>
+                <div id="invSplitMat" class="inv-split inv-split--materials" hidden>
+                    <section class="inv-panel inv-panel--bag inv-panel--materials" aria-label="材料">
+                        <div class="inv-panel__hd">
+                            <div class="inv-panel__title-row">
+                                <span class="inv-panel__title">炼丹材料</span>
+                                <span class="inv-panel__cap" id="invMatCap" aria-live="polite"></span>
+                            </div>
+                            <span class="inv-panel__hint">强化石用于行囊内遗器淬火；击杀妖魔有概率掉落。</span>
+                        </div>
+                        <div class="inventorySlots inv-grid inv-mat-grid scrollable" id="playerInventoryMaterials"></div>
+                    </section>
+                </div>
+                <div id="invSplitGem" class="inv-split inv-split--gems" hidden>
+                    <section class="inv-panel inv-panel--bag inv-panel--gems" aria-label="宝石">
+                        <div class="inv-panel__hd">
+                            <div class="inv-panel__title-row">
+                                <span class="inv-panel__title">灵窍宝石</span>
+                            </div>
+                            <span class="inv-panel__hint">三枚同级同种可淬合升一阶；嵌于已开孔遗器。</span>
+                        </div>
+                        <div class="inventorySlots inv-grid inv-mat-grid scrollable" id="playerInventoryGems"></div>
+                    </section>
+                </div>
+            </div>
+        </div>
+        <div class="modal-container" id="sectPassivesModal">
+            <div class="content modal-sheet modal-sheet--sect-passives">
+                <div class="content-head modal-sheet__head modal-sheet__head--sect">
+                    <div class="modal-sheet__head-text">
+                        <p class="modal-sheet__eyebrow">修炼</p>
+                        <h3>门派功法</h3>
+                    </div>
+                    <button type="button" class="icon-btn icon-btn--sect-close" onclick="closeSectPassivesModal()" title="关闭" aria-label="关闭"><i class="fa fa-xmark"></i></button>
+                </div>
+                <div class="sect-passives-modal-body" id="sectPassivePanelModal" aria-label="门派功法列表"></div>
+            </div>
+        </div>
+        <div class="modal-container modal-container--pet" id="petModal">
+            <div class="content modal-sheet modal-sheet--pet">
+                <div class="content-head modal-sheet__head modal-sheet__head--pet">
+                    <div class="modal-sheet__head-text">
+                        <p class="modal-sheet__eyebrow modal-sheet__eyebrow--pet">伴修</p>
+                        <h3 class="modal-sheet__title--pet">灵宠</h3>
+                    </div>
+                    <button type="button" class="icon-btn icon-btn--pet-close" onclick="closePetModal()" title="关闭" aria-label="关闭"><i class="fa fa-xmark"></i></button>
+                </div>
+                <div class="pet-modal-body scrollable" id="petPanelBody" aria-label="灵宠面板"></div>
+            </div>
+        </div>
+        <div class="modal-container" id="equipmentInfo"></div>
+        <div class="modal-container" id="combatPanel"></div>
+        <div class="modal-container" id="lvlupPanel">
+            <div class="content modal-sheet modal-sheet--lvlup" id="lvlupSelect"></div>
+        </div>
+        <div class="modal-container" id="defaultModal"></div>
+        <div class="modal-container" id="menuModal"></div>
+    </main>
+
+    <script src="./assets/js/utility.js"></script>
+    <script src="./assets/js/sect-passives.js"></script>
+    <script src="./assets/js/xiuxian.js"></script>
+    <script src="./assets/js/elements.js"></script>
+    <script src="./assets/js/pet.js"></script>
+    <script src="./assets/js/player.js"></script>
+    <script src="./assets/js/weapon-names-xiuxian.js"></script>
+    <script src="./assets/js/enhancement.js"></script>
+    <script src="./assets/js/gems.js"></script>
+    <script src="./assets/js/equipment.js"></script>
+    <script src="./assets/js/combat.js"></script>
+    <script src="./assets/js/dungeon.js"></script>
+    <script src="./assets/js/enemy-affixes.js"></script>
+    <script src="./assets/js/enemy.js"></script>
+    <script src="./assets/js/main.js"></script>
+<!--客服 开始-->
+<script src="//g8hh.github.io/static/js/jquery.min.js"></script>
+<link rel="stylesheet" href="//g8hh.github.io/static/css/kf.css" type="text/css" media="screen" charset="utf-8">
+<script src="//g8hh.github.io/static/js/kf.js"></script>
+<!-- 客服 结束 -->
+<!--站长统计-->
+    <div style="display: none">
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "https://hm.baidu.com/hm.js?6581389daf4dd6fe7dbb4d20fdcb52a6";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+    </div>    
+</body>
+
+</html>

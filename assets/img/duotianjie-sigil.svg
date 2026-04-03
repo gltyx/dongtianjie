@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="洞天劫印记">
+  <defs>
+    <radialGradient id="g1" cx="50%" cy="38%" r="70%">
+      <stop offset="0%" stop-color="#e4c76a" stop-opacity="0.55"/>
+      <stop offset="45%" stop-color="#e4c76a" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#0b0f18" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="g2" cx="50%" cy="50%" r="65%">
+      <stop offset="0%" stop-color="#5ab89a" stop-opacity="0.28"/>
+      <stop offset="72%" stop-color="#0b0f18" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#0b0f18" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="stroke" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f2d57a" stop-opacity="0.95"/>
+      <stop offset="50%" stop-color="#e4c76a" stop-opacity="0.75"/>
+      <stop offset="100%" stop-color="#5ab89a" stop-opacity="0.55"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feColorMatrix in="b" type="matrix" values="
+        1 0 0 0 0
+        0 1 0 0 0
+        0 0 1 0 0
+        0 0 0 0.55 0" result="g"/>
+      <feMerge>
+        <feMergeNode in="g"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- halo -->
+  <circle cx="256" cy="256" r="228" fill="url(#g1)"/>
+  <circle cx="256" cy="256" r="210" fill="url(#g2)"/>
+
+  <!-- outer ring -->
+  <circle cx="256" cy="256" r="208" fill="none" stroke="url(#stroke)" stroke-width="6" opacity="0.9" filter="url(#glow)"/>
+  <circle cx="256" cy="256" r="176" fill="none" stroke="url(#stroke)" stroke-width="2" opacity="0.55" stroke-dasharray="7 10"/>
+
+  <!-- swirl / "dragon" -->
+  <path d="M337 128c-64-10-142 33-154 105-10 63 43 96 92 95 28-1 52-10 68-24-18 42-64 73-118 73-78 0-140-58-140-139 0-110 122-182 234-152 9 2 16 11 14 20-2 9-11 16-20 14-5-1-10-2-16-2z"
+        fill="none" stroke="url(#stroke)" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
+  <path d="M182 380c66 6 132-35 144-95 10-50-22-83-63-92 46-9 98 18 114 71 25 83-62 170-175 170-26 0-52-4-76-12-8-3-13-12-10-21 3-8 12-13 21-10 15 5 30 8 45 9z"
+        fill="none" stroke="url(#stroke)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>
+
+  <!-- core pearl -->
+  <circle cx="256" cy="256" r="34" fill="#e8eaf2" opacity="0.14"/>
+  <circle cx="256" cy="256" r="18" fill="#e4c76a" opacity="0.7" filter="url(#glow)"/>
+  <circle cx="256" cy="256" r="8" fill="#ffffff" opacity="0.35"/>
+</svg>
