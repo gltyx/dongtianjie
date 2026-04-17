@@ -1,3 +1,6 @@
+/**
+ * 修仙风装备专名：武器、防具、项链/戒指均为每类 10×10 字格组合（百种），存档稳定、不随加载变化。
+ */
 var WEAPON_XIUXIAN_NAMES = (function () {
     function grid(pre, mid, suf) {
         var r = [];
@@ -126,6 +129,7 @@ var DEFENSE_XIUXIAN_NAMES = (function () {
     };
 })();
 
+/** 项链、戒指：每类 10×10 字格，与武器/防具同规则 */
 var ACCESSORY_XIUXIAN_NAMES = (function () {
     function grid(pre, mid, suf) {
         var r = [];

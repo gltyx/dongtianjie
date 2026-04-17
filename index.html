@@ -12,20 +12,22 @@
     </script>
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+    <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Noto+Sans+SC:wght@400;500;600;700&family=ZCOOL+XiaoWei&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="./assets/css/all.min.css">
     <link rel="stylesheet" href="./assets/css/rpg-awesome.min.css">
-    <link rel="stylesheet" href="./assets/css/style.css">
+    <link rel="stylesheet" href="./assets/css/style.css?v=dongtian-god-essence-5&b=dongtian-embed-21">
     <link rel="icon" type="image/png" href="./assets/icon/favicon.png">
     <title>洞天劫</title>
 </head>
 
 <body>
-<script src="assets/js/cnkey.js"></script>
-<script src="assets/js/transcore.js"></script>
+<script src="assets/js/dongtian-cloud.js?v=dongtian-embed-21"></script>
+<script src="assets/js/cnkey.js?v=dongtian-embed-21"></script>
+<script src="assets/js/transcore.js?v=dongtian-embed-21"></script>
     <main class="app-root">
         <!-- Hub -->
         <section id="dungeon-main" class="game-container scrollable screen screen--hub app-panel">
@@ -33,7 +35,9 @@
                 <div class="hub-layout__primary">
                 <header class="hub-layout__header hud-bar">
                     <div class="hud-bar__main">
-                        <div class="hud-bar__avatar" aria-hidden="true"></div>
+                        <div class="hud-bar__avatar" aria-hidden="true">
+                            <img class="hud-bar__avatar-img" alt="" decoding="async" />
+                        </div>
                         <div class="hud-bar__identity">
                             <div class="hud-bar__titles">
                                 <p id="player-name" class="hud-name"></p>
@@ -66,6 +70,13 @@
                 </section>
                 <section class="hub-layout__run-extra" aria-label="红尘押镖与地脉奇遇">
                     <div class="run-bar__extra-actions" id="runBarExtraActions"></div>
+                </section>
+                <section class="hub-layout__xiu-market" id="xiuMarketBar" aria-label="联网坊市">
+                    <div class="xiu-market-actions">
+                        <button type="button" id="xiuMarketOpenBtn" class="btn btn--sm btn--ghost xiu-market-open-btn">修仙市场</button>
+                        <button type="button" id="wushenArenaOpenBtn" class="btn btn--sm btn--ghost wushen-arena-open-btn" onclick="if(window.__wushenArenaBarClick){window.__wushenArenaBarClick();}return false;">武神坛</button>
+                        <button type="button" id="molongHallOpenBtn" class="btn btn--sm btn--ghost molong-hall-open-btn" onclick="if(window.openMolongHallModal){window.openMolongHallModal();}return false;">副本大厅</button>
+                    </div>
                 </section>
 
                 <section class="hub-layout__stats stat-panel hub-stats" aria-label="角色属性">
@@ -109,7 +120,7 @@
                 <header class="content-head modal-sheet__head modal-sheet__head--inv">
                     <div class="modal-sheet__head-text">
                         <p class="modal-sheet__eyebrow modal-sheet__eyebrow--inv">须弥藏芥</p>
-                        <h3>行囊</h3>
+                        <h3>行囊→联网版本加群902481027</h3>
                         <p class="modal-sheet__sub">纳遗器灵宝，随念取用</p>
                     </div>
                     <button type="button" class="icon-btn icon-btn--inv-close" onclick="closeInventory()" title="关闭" aria-label="关闭"><i class="fa fa-xmark"></i></button>
@@ -197,7 +208,10 @@
                                     <span class="inv-equip-card__eyebrow">气海相连</span>
                                     <h4 class="inv-equip-card__title">身负之器</h4>
                                 </div>
-                                <button type="button" class="icon-btn icon-btn--unequip-all" id="unequip-all" title="尽数卸下" aria-label="尽数卸下"><i class="fa fa-circle-xmark"></i></button>
+                                <div class="inv-equip-card__hd-actions">
+                                    <button type="button" class="btn btn--sm btn--ghost inv-title-btn" onclick="openTitleModal()">称号</button>
+                                    <button type="button" class="icon-btn icon-btn--unequip-all" id="unequip-all" title="尽数卸下" aria-label="尽数卸下"><i class="fa fa-circle-xmark"></i></button>
+                                </div>
                             </div>
                             <p class="inv-equip-card__hint">武器、护甲、盾、头盔、戒指、项链各限一件；同类型新装会换下旧件回行囊。点按已装备可褪下。</p>
                             <div id="playerEquipment" class="equip-strip equip-strip--inv"></div>
@@ -220,16 +234,31 @@
                 <div id="invSplitGem" class="inv-split inv-split--gems" hidden>
                     <section class="inv-panel inv-panel--bag inv-panel--gems" aria-label="宝石">
                         <div class="inv-panel__hd">
-                            <div class="inv-panel__title-row">
+                            <div class="inv-panel__title-row inv-panel__title-row--gem-actions">
                                 <span class="inv-panel__title">灵窍宝石</span>
+                                <button type="button" class="btn btn--sm btn--accent inv-gem-merge-all-btn" id="inv-gem-merge-all" title="五种宝石各自三合一，升至当前存量可达的最高阶">一键合成</button>
                             </div>
-                            <span class="inv-panel__hint">三枚同级同种可淬合升一阶；嵌于已开孔遗器。</span>
+                            <span class="inv-panel__hint">三枚同级同种可淬合升一阶；高阶一枚可拆为三枚次阶；嵌于已开孔遗器。</span>
                         </div>
                         <div class="inventorySlots inv-grid inv-mat-grid scrollable" id="playerInventoryGems"></div>
                     </section>
                 </div>
             </div>
         </div>
+        <div class="modal-container modal-container--title" id="titleSelectModal" style="display: none;" aria-modal="true" role="dialog" aria-labelledby="titleSelectHeading">
+            <div class="content modal-sheet modal-sheet--title">
+                <header class="content-head modal-sheet__head modal-sheet__head--title">
+                    <div class="modal-sheet__head-text">
+                        <p class="modal-sheet__eyebrow">洞天劫</p>
+                        <h3 id="titleSelectHeading">称号</h3>
+                        <p class="modal-sheet__sub">已达条件即永久解锁；所有已解锁称号的机缘加成叠加。</p>
+                    </div>
+                    <button type="button" class="icon-btn icon-btn--title-close" onclick="closeTitleModal()" title="关闭" aria-label="关闭"><i class="fa fa-xmark"></i></button>
+                </header>
+                <div id="titleModalList" class="title-modal-list scrollable" role="list"></div>
+            </div>
+        </div>
+
         <div class="modal-container" id="sectPassivesModal">
             <div class="content modal-sheet modal-sheet--sect-passives">
                 <div class="content-head modal-sheet__head modal-sheet__head--sect">
@@ -263,21 +292,282 @@
         <div class="modal-container" id="menuModal"></div>
     </main>
 
-    <script src="./assets/js/utility.js"></script>
-    <script src="./assets/js/sect-passives.js"></script>
-    <script src="./assets/js/xiuxian.js"></script>
-    <script src="./assets/js/elements.js"></script>
-    <script src="./assets/js/pet.js"></script>
-    <script src="./assets/js/player.js"></script>
-    <script src="./assets/js/weapon-names-xiuxian.js"></script>
-    <script src="./assets/js/enhancement.js"></script>
-    <script src="./assets/js/gems.js"></script>
-    <script src="./assets/js/equipment.js"></script>
-    <script src="./assets/js/combat.js"></script>
-    <script src="./assets/js/dungeon.js"></script>
-    <script src="./assets/js/enemy-affixes.js"></script>
-    <script src="./assets/js/enemy.js"></script>
-    <script src="./assets/js/main.js"></script>
+    <div class="modal-container modal-container--xiu-market" id="xiuMarketModal" style="display:none;" aria-modal="true" role="dialog" aria-label="修仙市场">
+        <div class="xiu-market-sheet">
+            <header class="xiu-market-head">
+                <div>
+                    <p class="xiu-market-eyebrow">洞天坊市</p>
+                    <h3 class="xiu-market-title">修仙市场</h3>
+                    <p class="xiu-market-sub">联网币交易 · 遗器 / 材料 / 灵宠 · 一口价与竞拍 · 超时自动下架退回</p>
+                </div>
+                <div class="xiu-market-head-actions">
+                    <span class="xiu-market-coin">联网币 <strong id="xiuMarketCoin">0</strong></span>
+                    <button type="button" class="btn btn--sm btn--ghost" id="xiuMarketRefreshBtn">刷新</button>
+                    <button type="button" class="icon-btn" id="xiuMarketCloseBtn" title="关闭" aria-label="关闭"><i class="fa fa-xmark"></i></button>
+                </div>
+            </header>
+            <div class="xiu-market-toolbar">
+                <label class="xiu-market-check"><input type="checkbox" id="xiuMarketMineOnly" /> 仅看与我相关</label>
+                <label class="xiu-market-filter">类目
+                    <select id="xiuMarketFilterType">
+                        <option value="">全部</option>
+                        <option value="equip">遗器</option>
+                        <option value="material">材料</option>
+                        <option value="pet">灵宠</option>
+                    </select>
+                </label>
+                <span id="xiuMarketPetFilters" class="xiu-market-pet-filters" hidden aria-label="灵宠筛选">
+                    <label class="xiu-market-filter">灵宠类型
+                        <select id="xiuMarketPetKind">
+                            <option value="">全部</option>
+                            <option value="attack">攻击型</option>
+                            <option value="defense">防御型</option>
+                            <option value="stamina">体力型</option>
+                            <option value="balanced">平衡型</option>
+                        </select>
+                    </label>
+                    <label class="xiu-market-filter">年份
+                        <select id="xiuMarketPetAgeTier">
+                            <option value="">全部</option>
+                            <option value="young">幼年</option>
+                            <option value="10y">十年</option>
+                            <option value="100y">百年</option>
+                            <option value="1000y">千年</option>
+                            <option value="10000y">万年</option>
+                            <option value="100000y">十万年</option>
+                        </select>
+                    </label>
+                </span>
+                <span id="xiuMarketEquipFilters" class="xiu-market-equip-filters" aria-label="遗器筛选">
+                    <label class="xiu-market-filter">品质
+                        <select id="xiuMarketEquipRarity">
+                            <option value="">全部</option>
+                            <option value="Common">凡尘器</option>
+                            <option value="Uncommon">蕴灵胚</option>
+                            <option value="Rare">玄纹铸</option>
+                            <option value="Epic">地脉珍</option>
+                            <option value="Legendary">天敕珍</option>
+                            <option value="Heirloom">古遗宝</option>
+                            <option value="Etherbound">界壁宝</option>
+                            <option value="StellarSign">星斗印</option>
+                            <option value="Nullforge">太虚胚</option>
+                            <option value="Chronarch">光阴器</option>
+                            <option value="Apexother">劫外道兵</option>
+                        </select>
+                    </label>
+                    <label class="xiu-market-filter">装备种类
+                        <select id="xiuMarketEquipSlotType">
+                            <option value="">全部</option>
+                            <option value="Weapon">武器</option>
+                            <option value="Armor">护甲</option>
+                            <option value="Shield">盾</option>
+                            <option value="Helmet">头盔</option>
+                            <option value="Ring">戒指</option>
+                            <option value="Necklace">项链</option>
+                        </select>
+                    </label>
+                    <label class="xiu-market-filter xiu-market-filter--lvl">等级
+                        <input type="number" id="xiuMarketEquipLvlMin" class="xiu-market-lvl-inp" min="1" max="9999" placeholder="最低" inputmode="numeric" />
+                        <span class="xiu-market-lvl-sep">至</span>
+                        <input type="number" id="xiuMarketEquipLvlMax" class="xiu-market-lvl-inp" min="1" max="9999" placeholder="最高" inputmode="numeric" />
+                    </label>
+                </span>
+            </div>
+            <div class="xiu-market-body xiu-market-body--browse">
+                <div class="xiu-market-col xiu-market-col--list">
+                    <h4 class="xiu-market-h4">挂单</h4>
+                    <div id="xiuMarketList" class="xiu-market-list"></div>
+                    <div id="xiuMarketPager" class="xiu-market-pager"></div>
+                    <h4 class="xiu-market-h4">近期成交</h4>
+                    <div id="xiuMarketSoldHistory" class="xiu-market-sold"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 上架表单（风格对齐主游戏联网装备市场：金边深色底；配色沿用洞天劫变量） -->
+    <div class="modal-container modal-container--xiu-sell" id="xiuMarketSellModal" style="display: none;" aria-modal="true" role="dialog" aria-labelledby="xiuSellTitle">
+        <div class="xiu-sell-sheet">
+            <header class="xiu-sell-head">
+                <p class="xiu-sell-eyebrow">洞天坊市</p>
+                <h3 class="xiu-sell-title" id="xiuSellTitle">上架至修仙市场</h3>
+                <p class="xiu-sell-hint" id="xiuSellHint"></p>
+            </header>
+            <div class="xiu-sell-body">
+                <div class="xiu-sell-row" id="xiuSellMatRow" hidden>
+                    <label class="xiu-sell-label" for="xiuSellMatQty">上架数量</label>
+                    <input type="number" class="xiu-sell-input" id="xiuSellMatQty" min="1" step="1" value="1" />
+                    <p class="xiu-sell-muted" id="xiuSellMatCap"></p>
+                </div>
+                <div class="xiu-sell-row xiu-sell-row--warn" id="xiuSellPetRow" hidden>
+                    <p class="xiu-sell-warn"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i> 确认后该灵宠将从栏中取出并挂单出售。</p>
+                </div>
+                <div class="xiu-sell-mode" role="group" aria-label="出售方式">
+                    <button type="button" class="xiu-sell-mode-btn xiu-sell-mode-btn--active" data-sale-mode="fixed" id="xiuSellModeFixed">固定一口价</button>
+                    <button type="button" class="xiu-sell-mode-btn" data-sale-mode="auction" id="xiuSellModeAuction">竞拍</button>
+                </div>
+                <div class="xiu-sell-fields" id="xiuSellFieldsFixed">
+                    <label class="xiu-sell-label" for="xiuSellPriceFixed">一口价（联网币）</label>
+                    <input type="number" class="xiu-sell-input" id="xiuSellPriceFixed" min="0" step="1" value="1" />
+                </div>
+                <div class="xiu-sell-fields" id="xiuSellFieldsAuction" hidden>
+                    <label class="xiu-sell-label" for="xiuSellMinBid">起拍价（联网币，至少 1）</label>
+                    <input type="number" class="xiu-sell-input" id="xiuSellMinBid" min="1" step="1" value="1" />
+                    <label class="xiu-sell-label xiu-sell-label--gap" for="xiuSellBuyNow">一口价（可选，留空表示仅竞拍；若填写须 ≥ 起拍价）</label>
+                    <input type="text" class="xiu-sell-input" id="xiuSellBuyNow" inputmode="numeric" autocomplete="off" placeholder="可选" />
+                </div>
+                <p class="xiu-sell-err" id="xiuSellErr" role="alert"></p>
+            </div>
+            <div class="xiu-sell-actions">
+                <button type="button" class="btn btn--sm btn--ghost" id="xiuSellCancel">取消</button>
+                <button type="button" class="btn btn--sm btn--primary" id="xiuSellSubmit">确认上架</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-container modal-container--xiu-confirm" id="xiuMarketConfirmModal" style="display: none;" aria-modal="true" role="dialog">
+        <div class="xiu-confirm-sheet">
+            <p class="xiu-confirm-text" id="xiuConfirmText"></p>
+            <div class="xiu-sell-actions">
+                <button type="button" class="btn btn--sm btn--ghost" id="xiuConfirmCancel">取消</button>
+                <button type="button" class="btn btn--sm btn--primary" id="xiuConfirmOk">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="xiuMarketToast" class="xiu-market-toast" style="display: none;" role="status" aria-live="polite"></div>
+
+    <div class="modal-container modal-container--wushen-arena" id="wushenArenaModal" style="display:none;" aria-modal="true" role="dialog" aria-label="武神坛">
+        <div class="wushen-arena-sheet">
+            <header class="wushen-arena-head">
+                <div>
+                    <p class="wushen-arena-eyebrow">洞天联网</p>
+                    <h3 class="wushen-arena-title">武神坛</h3>
+                    <p class="wushen-arena-sub">保存快照后切磋：1–10 名为固定槽 · 虚位可无斗法直接占领（无榜或名次低于该槽）· 有对手则斗法：胜则占坑或换位 · 已上榜不可挑战更低名次 · 每日 12:01（北京时间）新周期：5 次免费挑战重置、属性快照清空须重存 · 12:00 按名次结算联网币</p>
+                </div>
+                <div class="wushen-arena-head-actions">
+                    <span class="wushen-arena-coin">联网币 <strong id="wushenArenaCoin">0</strong></span>
+                    <span class="wushen-arena-meta" id="wushenArenaMeta"></span>
+                    <button type="button" class="btn btn--sm btn--ghost" id="wushenArenaRefreshBtn">刷新</button>
+                    <button type="button" class="icon-btn" id="wushenArenaCloseBtn" title="关闭" aria-label="关闭"><i class="fa fa-xmark"></i></button>
+                </div>
+            </header>
+            <div class="wushen-arena-body">
+                <div class="wushen-arena-panels">
+                    <section class="wushen-arena-card" aria-label="快照">
+                        <h4 class="wushen-arena-card-title">属性快照</h4>
+                        <p class="wushen-arena-muted">将当前角色面板存为一条服务器快照：切磋时你打人、别人打你都按这一套属性结算。每个周期（每日北京时间 12:01 起）快照会清空，需重新保存。</p>
+                        <p class="wushen-arena-snap-preview" id="wushenSnapshotPreview">未保存</p>
+                        <button type="button" class="btn btn--sm btn--primary" id="wushenSaveSnapshotBtn">保存属性快照</button>
+                    </section>
+                    <section class="wushen-arena-card" aria-label="切磋次数">
+                        <h4 class="wushen-arena-card-title">切磋次数</h4>
+                        <p class="wushen-arena-muted" id="wushenChallengeHint">剩余免费次数：—</p>
+                        <div class="wushen-arena-actions-row">
+                            <button type="button" class="btn btn--sm btn--ghost" id="wushenBuyAttemptBtn">1 联网币加 1 次</button>
+                        </div>
+                        <p class="wushen-arena-result" id="wushenLastResult" role="status"></p>
+                    </section>
+                </div>
+                <section class="wushen-arena-card wushen-arena-card--rank" aria-label="本周期排行榜">
+                    <div class="wushen-arena-rank-head">
+                        <h4 class="wushen-arena-card-title">本周期胜场榜（1–10 名）</h4>
+                        <span class="wushen-arena-cycle" id="wushenCycleLabel"></span>
+                    </div>
+                    <p class="wushen-arena-muted wushen-arena-reward-hint">奖励（北京时间每日 12:00 发放至账号联网币）：第 1 名 50，第 2 名 30，第 3 名 20，第 4–10 名各 10，其余有战绩者各 5。</p>
+                    <ul class="wushen-arena-rank-list" id="wushenRankList"></ul>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-container modal-container--molong-hall" id="molongHallModal" style="display:none;" aria-modal="true" role="dialog" aria-label="副本大厅">
+        <div class="wushen-arena-sheet molong-hall-sheet">
+            <header class="wushen-arena-head">
+                <div>
+                    <p class="wushen-arena-eyebrow">洞天联网</p>
+                    <h3 class="wushen-arena-title">副本大厅</h3>
+                    <p class="wushen-arena-sub" id="molongMeta">加载中…</p>
+                </div>
+                <div class="wushen-arena-head-actions">
+                    <button type="button" class="btn btn--sm btn--ghost" id="molongHallCloseBtn">关闭</button>
+                </div>
+            </header>
+            <div class="wushen-arena-body">
+                <div class="wushen-arena-panels">
+                    <section class="wushen-arena-card">
+                        <h4 class="wushen-arena-card-title">组队</h4>
+                        <p class="wushen-arena-muted">房主仅能挑战当前进度关；可单人开战，亦可组队助战。有队员时须队员点「准备」后房主方可开战。属性以武神坛快照为准。</p>
+                        <label class="molong-field"><input type="checkbox" id="molongPublishToggle" checked /> 发布房间（公开到列表）</label>
+                        <div class="molong-order-row">
+                            <span>前后排：</span>
+                            <label><input type="radio" name="molongOrderFront" id="molongOrderHostFront" value="host" checked /> 房主在前</label>
+                            <label><input type="radio" name="molongOrderFront" id="molongOrderGuestFront" value="guest" /> 队员在前</label>
+                        </div>
+                        <p class="molong-room-line molong-room-title-row">
+                            <label for="molongRoomTitleInput">房间名：</label>
+                            <input type="text" id="molongRoomTitleInput" class="molong-room-title-input" maxlength="32" placeholder="默认：角色名+的魔龙房" autocomplete="off" />
+                            <button type="button" class="btn btn--sm btn--ghost" id="molongSaveRoomTitleBtn">保存名称</button>
+                        </p>
+                        <p class="molong-members" id="molongRoomMembers" aria-live="polite">房主：—　队友：—</p>
+                        <p class="molong-room-line molong-room-sync" id="molongRoomSyncLine"></p>
+                        <p class="molong-room-line">房间号：<strong id="molongRoomId">—</strong>
+                            <button type="button" class="btn btn--sm btn--ghost" id="molongCopyRoomBtn">复制</button>
+                        </p>
+                        <p class="molong-stage-line">副本：
+                            <select id="molongDungeonSelect" aria-label="选择副本"></select>
+                        </p>
+                        <p class="molong-stage-line">关卡：
+                            <select id="molongStageSelect" aria-label="选择关卡"></select>
+                        </p>
+                        <div class="molong-actions">
+                            <button type="button" class="btn btn--sm btn--ghost" id="molongGuestReadyBtn" style="display:none">准备</button>
+                            <button type="button" class="btn btn--sm btn--primary" id="molongCreateRoomBtn">创建房间</button>
+                            <button type="button" class="btn btn--sm btn--ghost" id="molongCloseRoomBtn">关闭房间</button>
+                            <button type="button" class="btn btn--sm btn--accent" id="molongStartBattleBtn">开始战斗</button>
+                        </div>
+                    </section>
+                    <section class="wushen-arena-card">
+                        <h4 class="wushen-arena-card-title">房间列表</h4>
+                        <p class="wushen-arena-muted molong-filter-toolbar">
+                            <span>筛选：</span>
+                            <select id="molongDungeonFilter" aria-label="筛选副本"></select>
+                            <select id="molongStageFilter" aria-label="筛选关卡"></select>
+                            <button type="button" class="btn btn--sm btn--ghost" id="molongRefreshListBtn">刷新</button>
+                            <label class="molong-room-search-label">
+                                <span class="molong-room-search-lbl">搜索：</span>
+                                <input type="search" id="molongRoomSearchInput" class="molong-room-search" maxlength="64" placeholder="房间名 / 房号 / 房主" autocomplete="off" />
+                            </label>
+                        </p>
+                        <p class="wushen-arena-muted" style="margin-top:0.25rem;font-size:0.78rem;"></p>
+                        <div class="molong-room-list-scroll">
+                            <ul class="molong-room-list" id="molongRoomList"></ul>
+                        </div>
+                    </section>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="./assets/js/utility.js?v=dongtian-atkspd-mult-3&b=dongtian-embed-21"></script>
+    <script src="./assets/js/sect-passives.js?v=dongtian-passive-5&b=dongtian-embed-21"></script>
+    <script src="./assets/js/xiuxian.js?v=dongtian-embed-21"></script>
+    <script src="./assets/js/elements.js?v=dongtian-embed-21"></script>
+    <script src="./assets/js/pet.js?v=dongtian-pet-release-confirm-5&b=dongtian-embed-21"></script>
+    <script src="./assets/js/player.js?v=dongtian-embed-21"></script>
+    <script src="./assets/js/weapon-names-xiuxian.js?v=dongtian-embed-21"></script>
+    <script src="./assets/js/enhancement.js?v=dongtian-god-essence-7&b=dongtian-embed-21"></script>
+    <script src="./assets/js/gems.js?v=dongtian-embed-21"></script>
+    <script src="./assets/js/equipment.js?v=dongtian-god-essence-7&b=dongtian-embed-21"></script>
+    <script src="./assets/js/combat.js?v=dongtian-combat-tick-504&b=dongtian-embed-21"></script>
+    <script src="./assets/js/titles.js?v=dongtian-embed-21"></script>
+    <script src="./assets/js/dungeon.js?v=dongtian-embed-21&monsterMin=sp-online-same"></script>
+    <script src="./assets/js/enemy-affixes.js?v=dongtian-embed-21"></script>
+    <script src="./assets/js/enemy.js?v=dongtian-embed-21"></script>
+    <script src="./assets/js/main.js?v=dongtian-embed-21"></script>
+    <script src="./assets/js/xiu-market.js?v=dongtian-embed-21"></script>
+    <script src="./assets/js/wushen-arena.js?v=dongtian-embed-21"></script>
+    <script src="./assets/js/dongtian-molong.js?v=dongtian-embed-21"></script>
 <!--客服 开始-->
 <script src="//g8hh.github.io/static/js/jquery.min.js"></script>
 <link rel="stylesheet" href="//g8hh.github.io/static/css/kf.css" type="text/css" media="screen" charset="utf-8">
@@ -295,6 +585,7 @@ var _hmt = _hmt || [];
 })();
 </script>
     </div>    
+
 </body>
 
 </html>

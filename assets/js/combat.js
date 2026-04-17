@@ -2,8 +2,401 @@ const combatPanel = document.querySelector("#combatPanel")
 let enemyDead = false;
 let playerDead = false;
 
-/** 战斗节奏放慢倍数（>1 越慢；1.5 即出手间隔为原来的 1.5 倍） */
+/** 魔龙洞双人：队员战斗属性（快照），房主仍用 player.stats */
+var molongGuestCombatStats = null;
+var __molongPlayerStatsBackup = null;
+
+/** 洞天副本斗法：与房主共用 battleRngSeed，开战至 endCombat 用确定性 PRNG 替换 Math.random */
+var __molongMathRandomSaved = null;
+
+function molongTokenToSeed(token) {
+    var s = String(token || "");
+    var h = 2166136261 >>> 0;
+    for (var i = 0; i < s.length; i++) {
+        h ^= s.charCodeAt(i);
+        h = Math.imul(h, 16777619) >>> 0;
+    }
+    return h === 0 ? 0x9e3779b9 : h;
+}
+
+function molongMulberry32(seed) {
+    var a = seed >>> 0;
+    if (!a) a = 1;
+    return function () {
+        var t = (a += 0x6d2b79f5) | 0;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+function molongBeginSeededRngCombat(seed) {
+    molongEndSeededRngCombat();
+    var n =
+        seed !== undefined && seed !== null && String(seed) !== ""
+            ? Number(seed)
+            : NaN;
+    var s = Number.isFinite(n) ? n >>> 0 : 0;
+    if (!s) s = 1;
+    __molongMathRandomSaved = Math.random;
+    Math.random = molongMulberry32(s);
+}
+
+function molongEndSeededRngCombat() {
+    if (__molongMathRandomSaved !== null) {
+        Math.random = __molongMathRandomSaved;
+        __molongMathRandomSaved = null;
+    }
+}
+
+/**
+ * 魔龙洞 / 麒麟岛副本 BOSS 隐藏被动：
+ * 第 1 关 10% 闪避；每关 +5%；上限 70%。
+ *
+ * 开战时由 initMolongRaidBossDodgeFromBattleRes 写入 window.__molongRaidBossDodgeCtx；
+ * 闪避判定只读该对象（不读全局 enemy，避免脚本加载顺序导致 enemy 未绑定）。
+ */
+function normalizeMolongDungeonIdForDodge(raw) {
+    var s = raw != null ? String(raw).trim() : "";
+    if (s === "molong_dragon" || s === "molong_kylin") return s;
+    return "";
+}
+
+function getMolongRaidBossHiddenDodgeMeta() {
+    /** 只读 window.__molongRaidBossDodgeCtx：不依赖全局 enemy（combat.js 早于 enemy.js 加载时，本文件内对 enemy 的解析在部分环境下不可靠） */
+    if (typeof window === "undefined" || !window.__molongRaidBossDodgeCtx || typeof window.__molongRaidBossDodgeCtx !== "object") {
+        return null;
+    }
+    var c = window.__molongRaidBossDodgeCtx;
+    var did = normalizeMolongDungeonIdForDodge(c.dungeonId);
+    if (!did) did = "molong_dragon";
+    var st2 = Number(c.stage);
+    var stage = Math.max(1, Math.floor(isFinite(st2) ? st2 : 1));
+    if (did !== "molong_dragon" && did !== "molong_kylin") return null;
+    return { dungeonId: did, stage: stage };
+}
+
+function getMolongRaidBossHiddenDodgeRate() {
+    var m = getMolongRaidBossHiddenDodgeMeta();
+    if (!m) return 0;
+    var rate = 0.1 + (m.stage - 1) * 0.05;
+    return Math.max(0, Math.min(0.7, rate));
+}
+
+function rollMolongRaidBossHiddenDodge() {
+    var rate = getMolongRaidBossHiddenDodgeRate();
+    if (rate <= 0) return false;
+    /** 独立掷骰流，避免与主战斗 Math.random（含种子的连发消耗）耦合 */
+    var u;
+    if (typeof window !== "undefined" && typeof window.__molongRaidDodgeRng === "function") {
+        u = window.__molongRaidDodgeRng();
+    } else {
+        u = Math.random();
+    }
+    return u < rate;
+}
+
+function clearMolongRaidBossDodgeState() {
+    try {
+        if (typeof window !== "undefined") {
+            window.__molongRaidBossDodgeCtx = null;
+            window.__molongRaidDodgeRng = null;
+        }
+    } catch (eClr) {}
+}
+
+/** 副本开战时写入 ctx + 独立闪避 RNG（须在本文件内调用，确保与 _beginMolongRaidBattleImpl 同步） */
+function initMolongRaidBossDodgeFromBattleRes(res, rngSeedNum) {
+    try {
+        if (typeof window === "undefined" || !res) return;
+        var didRaw = res.dungeonId != null ? String(res.dungeonId) : "molong_dragon";
+        var did = normalizeMolongDungeonIdForDodge(didRaw) || "molong_dragon";
+        var stNum = Number(res.stage);
+        var stage = Math.max(1, Math.floor(isFinite(stNum) ? stNum : 1));
+        window.__molongRaidBossDodgeCtx = {
+            dungeonId: did,
+            stage: stage,
+            token: res.token != null ? String(res.token) : "",
+        };
+        var n = rngSeedNum !== undefined && rngSeedNum !== null && String(rngSeedNum) !== "" ? Number(rngSeedNum) : NaN;
+        var dSeed = (Number.isFinite(n) ? n >>> 0 : 0) ^ 0xbadc0ffe;
+        if (!dSeed) dSeed = 0x9e3779b9;
+        window.__molongRaidDodgeRng = molongMulberry32(dSeed);
+    } catch (eInit) {
+        clearMolongRaidBossDodgeState();
+    }
+}
+
+/** 魔龙洞 / 麒麟岛 BOSS 隐藏闪避：战斗日志（修仙口吻，不写「被动」字样） */
+function pickMolongRaidBossHiddenDodgePlayerLine() {
+    var name = enemy && enemy.name ? String(enemy.name) : "劫兽";
+    var lines = [
+        `你掌风罡气直贯${name}，却见劫气一敛，对方遁出一缕残影，竟将这一式杀机尽数化去——你这一击的伤害未落其实。`,
+        `${name}周身灵机一荡，你的法印如落空处；劫气挪移之间，那一击竟被全然避过，未损其气血。`,
+        `术法及体，${name}天躯虚影一现，如镜花碎裂，你这一式真元贯出却无所着力，伤害被尽数躲开。`,
+        `劫脉微动，${name}似已不在此间——你攻势落定，只见劫痕消散，这一击的伤害未入其身。`,
+    ];
+    return lines[Math.floor(Math.random() * lines.length)];
+}
+
+function pickMolongRaidBossHiddenDodgeGuestLine(guestName) {
+    var gn = guestName || "队员";
+    var name = enemy && enemy.name ? String(enemy.name) : "劫兽";
+    var lines = [
+        `<span class="Uncommon">${gn}</span> 一式摧出，${name}劫气倒卷，竟将其中杀意尽数化去——这一击的伤害未承其实。`,
+        `<span class="Uncommon">${gn}</span> 真元及处，${name}周身灵影一闪，法印落空，这一击的伤害被全然避过。`,
+        `「${gn}」催动诀印，${name}天躯虚晃，借劫气遁形，将这一击的伤害尽数躲开，未伤其分毫。`,
+    ];
+    return lines[Math.floor(Math.random() * lines.length)];
+}
+
+
 const COMBAT_PACE_SLOW_MULT = 1.5;
+
+/** 仅读档续打：修士下一击须晚于妖兽下一击至少这么久（正常新开战仍按攻速各算各的） */
+const COMBAT_RESUME_PLAYER_NOT_BEFORE_ENEMY_MS = 280;
+/** 仅读档续打：灵宠首击不早于妖兽下一击后这么久 */
+const COMBAT_RESUME_PET_NOT_BEFORE_ENEMY_MS = 200;
+
+/** 斗法历时：setInterval 间隔（毫秒），每触发一次 combatSeconds++；pickCombatKillLine 用 combatSeconds×本值 为真实毫秒 */
+const COMBAT_TICK_MS = 500;
+let combatSeconds = 0;
+let combatTimer = null;
+
+/**
+ * 妖兽 atkSpd 与「修士面板」刻度不同：递归里默认用 1000/atkSpd，与玩家 100/atkSpd 差约 10 倍。
+ * 武神坛对手套用修士快照，须与玩家同刻度，否则会出现「对方很久才打一下」。
+ */
+function getEnemyAttackIntervalMs() {
+    if (!enemy || !enemy.stats) return 1000 * COMBAT_PACE_SLOW_MULT;
+    const asp = Math.max(0.06, Math.min(3, enemy.stats.atkSpd || 0.06));
+    if (enemy.wushenArena) {
+        return (100 / asp) * COMBAT_PACE_SLOW_MULT;
+    }
+    return (1000 / asp) * COMBAT_PACE_SLOW_MULT;
+}
+
+/** 与 calculateStats 身法下限一致，避免 atkSpd 为 0/NaN 时 setTimeout(∞) 导致攻击链永久停住 */
+function getPlayerAttackIntervalMs() {
+    if (!player || !player.stats) return 1000 * COMBAT_PACE_SLOW_MULT;
+    const asp = Math.max(0.06, Math.min(2.5, player.stats.atkSpd || 0.06));
+    return (100 / asp) * COMBAT_PACE_SLOW_MULT;
+}
+
+function clampCombatDelayMs(ms, fallback) {
+    var f = typeof fallback === "number" ? fallback : 300;
+    if (typeof ms !== "number" || !isFinite(ms)) return f;
+    if (ms <= 0) return 0;
+    if (ms < 16) return 16;
+    return ms;
+}
+
+/** 下一轮普攻/妖击的绝对时间戳（与存档同步，防止关页重开重置先手与攻速轴） */
+var __combatNextPlayerWallAt = 0;
+var __combatNextEnemyWallAt = 0;
+var COMBAT_TIMER_SYNC_MAX_AGE_MS = 2 * 60 * 60 * 1000;
+/** 关页面/读档续斗：须等妖兽真正打到玩家一次后，才允许修士与灵宠出手 */
+var __combatResumeNeedEnemyHitBeforePlayer = false;
+/** 续斗先手链异常卡住时，超时强制解开玩家/灵宠出手（极少触发） */
+var __combatResumeFailsafeTimer = null;
+/** 读档续打占位用，避免看门狗在修士链未启动时误触 */
+var COMBAT_PLAYER_ATK_HOLD_MS = 999999999;
+
+function readCombatResumeDelays() {
+    var sync = player && player.combatTimerSync;
+    if (!sync || typeof sync !== "object") return null;
+    if (typeof sync.playerDueAt !== "number" || typeof sync.enemyDueAt !== "number" || typeof sync.savedAt !== "number") return null;
+    if (!isFinite(sync.playerDueAt) || !isFinite(sync.enemyDueAt) || !isFinite(sync.savedAt)) return null;
+    var now = Date.now();
+    if (now - sync.savedAt > COMBAT_TIMER_SYNC_MAX_AGE_MS) return null;
+    return {
+        pDelay: Math.max(0, sync.playerDueAt - now),
+        eDelay: Math.max(0, sync.enemyDueAt - now),
+    };
+}
+
+/** 写入 player，随 localStorage / 洞天联网存档持久化 */
+function syncCombatWallTimersToPlayer() {
+    try {
+        if (!player || !player.inCombat || enemyDead || playerDead) return;
+        if (!enemy || !enemy.stats || enemy.stats.hp < 1) return;
+        if (!player.stats || player.stats.hp < 1) return;
+        if (
+            typeof __combatNextPlayerWallAt !== "number" ||
+            typeof __combatNextEnemyWallAt !== "number" ||
+            !isFinite(__combatNextPlayerWallAt) ||
+            !isFinite(__combatNextEnemyWallAt)
+        ) {
+            return;
+        }
+        player.combatTimerSync = {
+            playerDueAt: __combatNextPlayerWallAt,
+            enemyDueAt: __combatNextEnemyWallAt,
+            savedAt: Date.now(),
+        };
+    } catch (eSync) {}
+}
+
+function clearCombatTimerSyncOnly() {
+    __combatNextPlayerWallAt = 0;
+    __combatNextEnemyWallAt = 0;
+    __combatResumeNeedEnemyHitBeforePlayer = false;
+    try {
+        if (player && player.combatTimerSync) delete player.combatTimerSync;
+    } catch (eClr2) {}
+}
+
+function beginPlayerAndPetChainsAfterResumeEnemyFirst() {
+    if (!__combatResumeNeedEnemyHitBeforePlayer) return;
+    if (!player || !player.inCombat || enemyDead || playerDead) {
+        __combatResumeNeedEnemyHitBeforePlayer = false;
+        return;
+    }
+    __combatResumeNeedEnemyHitBeforePlayer = false;
+    var _pd = clampCombatDelayMs(getPlayerAttackIntervalMs(), 250);
+    touchPlayerAtkDueFromDelay(_pd);
+    __combatNextPlayerWallAt = Date.now() + _pd;
+    syncCombatWallTimersToPlayer();
+    setTimeout(function () {
+        if (player.inCombat && !enemyDead && !playerDead) playerAttack();
+    }, _pd);
+    var pcs0 = typeof getPetCombatStats === "function" ? getPetCombatStats() : null;
+    if (pcs0 && !(enemy && enemy.wushenArena) && !(enemy && enemy.molongRaid)) {
+        var pasp = Math.max(0.06, Math.min(2.5, pcs0.atkSpd || 0.06));
+        var petDelay = clampCombatDelayMs((100 / pasp) * COMBAT_PACE_SLOW_MULT, 300);
+        var petFirst = Math.max(petDelay, COMBAT_RESUME_PET_NOT_BEFORE_ENEMY_MS);
+        setTimeout(function () {
+            if (player.inCombat && !enemyDead && !playerDead) petAttack();
+        }, petFirst);
+    }
+}
+
+if (typeof window !== "undefined") {
+    window.syncCombatWallTimersToPlayer = syncCombatWallTimersToPlayer;
+    window.clearCombatTimerSyncOnly = clearCombatTimerSyncOnly;
+}
+
+/** 玩家下一次普攻「应触发」的时间戳；用于看门狗在 setTimeout 链丢失时续接（仅修士端） */
+var __playerAtkDueAt = 0;
+var __playerAtkWatchdog = null;
+
+const PLAYER_ATK_WATCHDOG_MS = 450;
+/** 超过「预期下一击」这么久仍无新排程，则强制续接（覆盖后台标签节流等） */
+const PLAYER_ATK_STALL_GRACE_MS = 2200;
+
+function touchPlayerAtkDueFromDelay(delayMs) {
+    var d = clampCombatDelayMs(delayMs, 250);
+    __playerAtkDueAt = Date.now() + d;
+}
+
+function clearPlayerAtkWatchdog() {
+    if (__playerAtkWatchdog) {
+        clearInterval(__playerAtkWatchdog);
+        __playerAtkWatchdog = null;
+    }
+}
+
+function startPlayerAtkWatchdog() {
+    clearPlayerAtkWatchdog();
+    __playerAtkWatchdog = setInterval(function () {
+        try {
+            if (!player || !player.inCombat || enemyDead || playerDead) return;
+            if (!enemy || !enemy.stats || enemy.stats.hp < 1) return;
+            if (!player.stats || player.stats.hp < 1) return;
+            var now = Date.now();
+            if (now < __playerAtkDueAt + PLAYER_ATK_STALL_GRACE_MS) return;
+            var wdP = clampCombatDelayMs(getPlayerAttackIntervalMs(), 250);
+            touchPlayerAtkDueFromDelay(wdP);
+            __combatNextPlayerWallAt = Date.now();
+            syncCombatWallTimersToPlayer();
+            setTimeout(function () {
+                if (player && player.inCombat && !enemyDead && !playerDead) playerAttack();
+            }, 0);
+        } catch (eWd) {}
+    }, PLAYER_ATK_WATCHDOG_MS);
+}
+
+/** 妖兽下一次出手「应触发」时间；setTimeout 链丢失时由看门狗续接 */
+var __enemyAtkDueAt = 0;
+var __enemyAtkWatchdog = null;
+const ENEMY_ATK_WATCHDOG_MS = 450;
+const ENEMY_ATK_STALL_GRACE_MS = 2400;
+
+function touchEnemyAtkDueFromDelay(delayMs) {
+    var d = clampCombatDelayMs(delayMs, 500);
+    __enemyAtkDueAt = Date.now() + d;
+}
+
+function clearEnemyAtkWatchdog() {
+    if (__enemyAtkWatchdog) {
+        clearInterval(__enemyAtkWatchdog);
+        __enemyAtkWatchdog = null;
+    }
+}
+
+function startEnemyAtkWatchdog() {
+    clearEnemyAtkWatchdog();
+    __enemyAtkWatchdog = setInterval(function () {
+        try {
+            if (!player || !player.inCombat || enemyDead || playerDead) return;
+            if (!enemy || !enemy.stats || enemy.stats.hp < 1) return;
+            if (!player.stats || player.stats.hp < 1) return;
+            var now = Date.now();
+            if (now < __enemyAtkDueAt + ENEMY_ATK_STALL_GRACE_MS) return;
+            var ed = clampCombatDelayMs(getEnemyAttackIntervalMs(), 500);
+            touchEnemyAtkDueFromDelay(ed);
+            __combatNextEnemyWallAt = Date.now();
+            syncCombatWallTimersToPlayer();
+            setTimeout(function () {
+                if (player && player.inCombat && !enemyDead && !playerDead) enemyAttack();
+            }, 0);
+        } catch (eEw) {}
+    }, ENEMY_ATK_WATCHDOG_MS);
+}
+
+/** 收纳战利/重整：须在 #combatPanel 上委托点击。#battleButton 由 updateCombatLog 每次 innerHTML 重建，绑在按钮上会失效 →「点了没反应」。 */
+var __combatClaimHandlerPending = null;
+
+function ensureCombatPanelClaimDelegation() {
+    var panel = document.getElementById("combatPanel");
+    if (!panel || panel._combatClaimDelegBound) return;
+    panel._combatClaimDelegBound = true;
+    panel.addEventListener(
+        "click",
+        function (ev) {
+            var btn = ev.target && ev.target.closest && ev.target.closest("#battleButton");
+            if (!btn || typeof __combatClaimHandlerPending !== "function") return;
+            ev.preventDefault();
+            ev.stopPropagation();
+            var fn = __combatClaimHandlerPending;
+            __combatClaimHandlerPending = null;
+            try {
+                fn(ev);
+            } catch (eClaim) {
+                try {
+                    console.error("combatClaim", eClaim);
+                } catch (e2) {}
+            }
+        },
+        true
+    );
+}
+
+function safeAttachBattleButtonClick(handler) {
+    ensureCombatPanelClaimDelegation();
+    if (typeof handler !== "function") return;
+    __combatClaimHandlerPending = handler;
+    try {
+        updateCombatLog();
+    } catch (eUp) {}
+    if (typeof requestAnimationFrame === "function") {
+        requestAnimationFrame(function () {
+            try {
+                updateCombatLog();
+            } catch (eUp2) {}
+        });
+    }
+}
 
 function getEnemyMechanicLabel() {
     if (!enemy || !enemy.mechanic || !enemy.mechanic.type) return "";
@@ -31,7 +424,7 @@ function absorbDamageByEnemyShield(rawDamage) {
     var broken = enemy.mechanic.shieldHp <= 0;
     if (broken) {
         enemy.mechanic.shieldHp = 0;
-        // 破盾后进入短暂易伤窗口（3秒）
+        
         enemy.mechanic.shieldBreakVulnerableUntil = Date.now() + 3000;
     }
     return { hpDamage: hpDamage, absorbed: absorbed, shieldBroken: broken };
@@ -221,7 +614,7 @@ function applyChargerIntentToEnemyDamage(baseDamage) {
 }
 
 function pickCombatKillLine() {
-    var t = new Date(combatSeconds * 1000).toISOString().substring(14, 19);
+    var t = new Date(combatSeconds * COMBAT_TICK_MS).toISOString().substring(14, 19);
     var n = enemy && enemy.name ? enemy.name : "敌";
     var lines = [
         `${n}喉间溢出一声不甘的低吼，身形寸寸崩解，终化作飞灰散去。（斗法历时 ${t}）`,
@@ -234,7 +627,7 @@ function pickCombatKillLine() {
     return lines[Math.floor(Math.random() * lines.length)];
 }
 
-/** 当前装备的武器（身负之器） */
+
 function getPlayerEquippedWeapon() {
     if (!player || !Array.isArray(player.equipped)) return null;
     for (var i = 0; i < player.equipped.length; i++) {
@@ -243,7 +636,7 @@ function getPlayerEquippedWeapon() {
     return null;
 }
 
-/** 是否持门派本命器型（与 calculateStats 中 sectWeaponAtkBonusPct 判定一致） */
+
 function isBondedWeaponEquipped() {
     var w = getPlayerEquippedWeapon();
     if (!w || !player.sect || typeof getSectWeaponCategory !== "function") return false;
@@ -258,7 +651,7 @@ function weaponDisplayNameForCombatLog() {
     return w.weaponName || (typeof weaponCategoryLabel === "function" ? weaponCategoryLabel(w) : w.category) || "掌中兵";
 }
 
-/** 不改装备数据结构：按现有 12 武器 category 软映射为独立战斗风格 */
+
 function getPlayerWeaponCombatStyle() {
     var w = getPlayerEquippedWeapon();
     if (!w || !w.category) return "unarmed";
@@ -286,7 +679,7 @@ function formatCombatHitLine(tpl, enemyName, dmgStr, weaponName) {
     return tpl.replace(/\{n\}/g, enemyName).replace(/\{d\}/g, d).replace(/\{w\}/g, w);
 }
 
-/** 无武器或未匹配品类时的通用句（占位 {n}{d}） */
+
 var COMBAT_DEFAULT_CRIT_LINES = [
     `你眸中寒芒乍现，心念电转间已窥得一线破绽——一击正中要害！罡劲透体，向{n}凿出 {d}。`,
     `气机骤然暴涨，你借势反压，杀意如瀑倾泻，{n}避无可避，硬吃 {d} 的暴烈真伤。`,
@@ -329,7 +722,6 @@ var COMBAT_DEFAULT_HIT_LINES = [
     `你收势如弓满，出势如箭脱，{n}只觉劲风扑面，已刻 {d}。`
 ];
 
-/** 未装备武器：拳掌肉搏（仅 {n}{d}） */
 var COMBAT_UNARMED_CRIT_LINES = [
     `你弃器不用，双拳如雷——罡劲自丹田直贯臂膀，{n}胸前要害炸开 {d}。`,
     `掌缘如刀，你踏步欺身，一式「劈山」落下，{n}肩锁骨裂声里暴伤 {d}。`,
@@ -363,7 +755,7 @@ var COMBAT_UNARMED_HIT_LINES = [
     `拳意绵里藏针，你看似轻推，{n}胸前一闷，方知劲已入体 {d}。`
 ];
 
-/** 按武器 category（与 equipment 一致） */
+
 var COMBAT_WEAPON_CRIT_LINES = {
     Sword: [
         `剑尖一吐，霜线先{n}喉间三分——白虹经天，要害处绽开 {d}。`,
@@ -833,12 +1225,201 @@ function pickPlayerWeaponHitLine(crit, enemyName, dmgStr) {
 }
 
 // ========== Validation ==========
+function molongApplySnapshotToPlayer(s) {
+    if (!s) return;
+    player.stats.hp = Math.round(Number(s.hpMax) || 1);
+    player.stats.hpMax = Math.round(Number(s.hpMax) || 1);
+    player.stats.atk = Math.max(1, Math.round(Number(s.atk) || 1));
+    player.stats.def = Math.max(0, Math.round(Number(s.def) || 0));
+    player.stats.atkSpd = Math.min(2.5, Math.max(0.06, Number(s.atkSpd) || 0.6));
+    player.stats.critRate = Math.max(0, Math.min(100, Number(s.critRate) || 0));
+    player.stats.critDmg = Math.max(0, Math.min(2000, Number(s.critDmg) || 0));
+    player.stats.vamp = typeof player.stats.vamp === "number" ? player.stats.vamp : 0;
+    player.stats.pen = typeof s.pen === "number" && isFinite(s.pen) ? s.pen : 0;
+}
+
+function molongCloneCombatStatsFromSnapshot(s) {
+    if (!s) return null;
+    return {
+        hp: Math.round(Number(s.hpMax) || 1),
+        hpMax: Math.round(Number(s.hpMax) || 1),
+        atk: Math.max(1, Math.round(Number(s.atk) || 1)),
+        def: Math.max(0, Math.round(Number(s.def) || 0)),
+        atkSpd: Math.min(2.5, Math.max(0.06, Number(s.atkSpd) || 0.6)),
+        critRate: Math.max(0, Math.min(100, Number(s.critRate) || 0)),
+        critDmg: Math.max(0, Math.min(2000, Number(s.critDmg) || 0)),
+        pen: typeof s.pen === "number" && isFinite(s.pen) ? s.pen : 0,
+    };
+}
+
+function getMolongAttackTarget() {
+    if (!enemy || !enemy.molongRaid) return null;
+    if (!molongGuestCombatStats) {
+        return { stats: player.stats, label: "你" };
+    }
+    var mr = enemy.molongRaid;
+    var frontHost = mr.orderFront === "host";
+    var front = frontHost ? player.stats : molongGuestCombatStats;
+    var back = frontHost ? molongGuestCombatStats : player.stats;
+    if (front.hp >= 1) return { stats: front, label: frontHost ? "房主" : "队员" };
+    if (back.hp >= 1) return { stats: back, label: frontHost ? "队员" : "房主" };
+    return { stats: front, label: "房主" };
+}
+
+/** 副本斗法收尾：按装备重算属性并回满血再存档（与押镖/地脉战败一致）。否则 hp=0 回到主界面时 enterDungeon 会走联网 progressReset，整局被清空。 */
+function molongPostRaidRestorePlayerForHub() {
+    try {
+        if (typeof calculateStats === "function") calculateStats();
+        if (
+            typeof player !== "undefined" &&
+            player &&
+            player.stats &&
+            typeof player.stats.hpMax === "number" &&
+            player.stats.hpMax > 0
+        ) {
+            player.stats.hp = player.stats.hpMax;
+        }
+    } catch (eMhr) {}
+    try {
+        if (typeof restartDungeonHubTimers === "function") restartDungeonHubTimers();
+    } catch (eRt) {}
+    try {
+        if (typeof playerLoadStats === "function") playerLoadStats();
+    } catch (ePl) {}
+    try {
+        if (typeof saveData === "function") saveData();
+    } catch (eSv) {}
+}
+
+function molongHpValidation() {
+    if (player.stats.hp < 1) player.stats.hp = 0;
+    if (molongGuestCombatStats && molongGuestCombatStats.hp < 1) molongGuestCombatStats.hp = 0;
+
+    if (enemy.stats.hp < 1 && !enemyDead) {
+        enemy.stats.hp = 0;
+        enemyDead = true;
+        addCombatLog(
+            '<span class="Legendary">魔龙气机断绝，龙骸崩解如烟——此关已破。</span>'
+        );
+        player.stats.hp += Math.round((player.stats.hpMax * 20) / 100);
+        if (player.stats.hp > player.stats.hpMax) player.stats.hp = player.stats.hpMax;
+        playerLoadStats();
+        safeAttachBattleButtonClick(function () {
+            var mr0 = enemy.molongRaid;
+            var ig = mr0 && mr0.isRoomGuest;
+            var tok = mr0 ? mr0.token : null;
+            var dh = mr0 ? mr0.damageHost : 0;
+            var dg = mr0 ? mr0.damageGuest : 0;
+            enemy.molongRaid = null;
+            molongPostRaidRestorePlayerForHub();
+            var dimDungeon = document.querySelector("#dungeon-main");
+            if (dimDungeon) dimDungeon.style.filter = "brightness(100%)";
+            if (typeof dungeon !== "undefined" && dungeon && dungeon.status) dungeon.status.event = false;
+            combatPanel.style.display = "none";
+            enemyDead = false;
+            combatBacklog.length = 0;
+            if (ig && typeof window.molongRaidGuestLocalEnd === "function") {
+                window.molongRaidGuestLocalEnd(true, tok);
+            } else if (typeof window.finishMolongRaidCombat === "function") {
+                window.finishMolongRaidCombat(true, tok, dh, dg);
+            }
+        });
+        endCombat();
+        return;
+    }
+
+    if (
+        enemy &&
+        enemy.molongRaid &&
+        !enemyDead &&
+        !molongGuestCombatStats &&
+        player.stats.hp < 1 &&
+        !playerDead
+    ) {
+        playerDead = true;
+        addCombatLog('<span class="Common">气血不济，此战告负。</span>');
+        var dongtianSoloDefeatFlush = false;
+        try {
+            if (window.DONGTIAN_CLOUD_MODE) {
+                if (typeof window.cancelPendingDongtianCloudSave === "function") window.cancelPendingDongtianCloudSave();
+                endCombat();
+                if (typeof window.cancelPendingDongtianCloudSave === "function") window.cancelPendingDongtianCloudSave();
+                if (typeof window.__dongtianCloudFlushSave === "function") window.__dongtianCloudFlushSave();
+                dongtianSoloDefeatFlush = true;
+            }
+        } catch (eSoloD) {}
+        safeAttachBattleButtonClick(function () {
+            var mr0 = enemy.molongRaid;
+            var ig = mr0 && mr0.isRoomGuest;
+            var tok = mr0 ? mr0.token : null;
+            var dh = mr0 ? mr0.damageHost : 0;
+            enemy.molongRaid = null;
+            molongPostRaidRestorePlayerForHub();
+            var dimDungeon = document.querySelector("#dungeon-main");
+            if (dimDungeon) dimDungeon.style.filter = "brightness(100%)";
+            if (typeof dungeon !== "undefined" && dungeon && dungeon.status) dungeon.status.event = false;
+            combatPanel.style.display = "none";
+            playerDead = false;
+            combatBacklog.length = 0;
+            if (ig && typeof window.molongRaidGuestLocalEnd === "function") {
+                window.molongRaidGuestLocalEnd(false, tok);
+            } else if (typeof window.finishMolongRaidCombat === "function") {
+                window.finishMolongRaidCombat(false, tok, dh, 0);
+            }
+        });
+        if (!dongtianSoloDefeatFlush) endCombat();
+        return;
+    }
+
+    if (player.stats.hp < 1 && molongGuestCombatStats && molongGuestCombatStats.hp < 1 && !playerDead) {
+        playerDead = true;
+        addCombatLog('<span class="Common">二人气血俱尽，魔龙劫败。</span>');
+        var dongtianDefeatFlushDone = false;
+        try {
+            if (window.DONGTIAN_CLOUD_MODE) {
+                if (typeof window.cancelPendingDongtianCloudSave === "function") window.cancelPendingDongtianCloudSave();
+                endCombat();
+                if (typeof window.cancelPendingDongtianCloudSave === "function") window.cancelPendingDongtianCloudSave();
+                if (typeof window.__dongtianCloudFlushSave === "function") window.__dongtianCloudFlushSave();
+                dongtianDefeatFlushDone = true;
+            }
+        } catch (eSaveDeath) {}
+        safeAttachBattleButtonClick(function () {
+            var mr0 = enemy.molongRaid;
+            var ig = mr0 && mr0.isRoomGuest;
+            var tok = mr0 ? mr0.token : null;
+            enemy.molongRaid = null;
+            molongPostRaidRestorePlayerForHub();
+            var dimDungeon = document.querySelector("#dungeon-main");
+            if (dimDungeon) dimDungeon.style.filter = "brightness(100%)";
+            if (typeof dungeon !== "undefined" && dungeon && dungeon.status) dungeon.status.event = false;
+            combatPanel.style.display = "none";
+            playerDead = false;
+            combatBacklog.length = 0;
+            if (ig && typeof window.molongRaidGuestLocalEnd === "function") {
+                window.molongRaidGuestLocalEnd(false, tok);
+            } else if (typeof window.finishMolongRaidCombat === "function") {
+                window.finishMolongRaidCombat(false, tok, 0, 0);
+            }
+        });
+        if (!dongtianDefeatFlushDone) endCombat();
+        return;
+    }
+}
+
 const hpValidation = () => {
+    if (enemy && enemy.molongRaid) {
+        molongHpValidation();
+        return;
+    }
     // Prioritizes player death before the enemy
     if (player.stats.hp < 1) {
+        if (playerDead) return;
         player.stats.hp = 0;
         playerDead = true;
-        player.deaths++;
+        if (!(enemy && enemy.wushenArena)) {
+            player.deaths++;
+        }
         var defeatMsg =
             typeof pickXiuxianQuote === "function" ? pickXiuxianQuote("combat_defeat") : "";
         if (!defeatMsg) {
@@ -849,8 +1430,47 @@ const hpValidation = () => {
                 " 秘境法则一震，将你生生送出此界——这一败，记在心上便是。";
         }
         addCombatLog(defeatMsg);
-        document.querySelector("#battleButton").addEventListener("click", function () {
+        /** 押镖/地脉：战败瞬间即卸下 pending，避免反伤、余波等随后把敌血判 0 仍走斩杀链并误调 claimEscort（表现为败后又遇头目、再斩却按秘境战败重开） */
+        try {
+            if (typeof escort !== "undefined" && escort && escort.active) {
+                escort.pendingBattle = null;
+                escort.awaitingCombatOutcome = false;
+            }
+            if (typeof mining !== "undefined" && mining && mining.active) {
+                mining.pendingBattle = null;
+                mining.awaitingCombatOutcome = false;
+            }
+        } catch (eEscPend) {}
+        /** 洞天联网：须先 endCombat（inCombat=false）再立即冲洗；否则先 flush 会存成「仍在斗法中」，关页会打断 debounce，服务端停留在战前快照 */
+        var dongtianDefeatFlushDone = false;
+        try {
+            if (window.DONGTIAN_CLOUD_MODE) {
+                if (typeof window.cancelPendingDongtianCloudSave === "function") window.cancelPendingDongtianCloudSave();
+                endCombat();
+                if (typeof window.cancelPendingDongtianCloudSave === "function") window.cancelPendingDongtianCloudSave();
+                if (typeof window.__dongtianCloudFlushSave === "function") window.__dongtianCloudFlushSave();
+                dongtianDefeatFlushDone = true;
+            }
+        } catch (eSaveDeath) {}
+        safeAttachBattleButtonClick(function () {
             playerDead = false;
+
+            if (enemy && enemy.wushenArena && enemy.wushenArena.token) {
+                var wushenTok = enemy.wushenArena.token;
+                enemy.wushenArena = null;
+                let dimDungeon = document.querySelector("#dungeon-main");
+                dimDungeon.style.filter = "brightness(100%)";
+                combatPanel.style.display = "none";
+                runLoad("dungeon-main", "flex");
+                player.stats.hp = player.stats.hpMax;
+                if (typeof playerLoadStats === "function") playerLoadStats();
+                if (typeof saveData === "function") saveData();
+                combatBacklog.length = 0;
+                if (typeof window.finishWushenArenaCombat === "function") {
+                    window.finishWushenArenaCombat(false, wushenTok);
+                }
+                return;
+            }
 
             // 押镖战败：仅结束押镖并回主界面，不重开整局
             if (typeof escort !== "undefined" && escort && escort.active) {
@@ -863,13 +1483,17 @@ const hpValidation = () => {
                 clearInterval(dungeonTimer);
                 clearInterval(playTimer);
                 player.inCombat = false;
+                clearCombatTimerSyncOnly();
                 // 押镖失败后回到秘境界面，避免 hp=0 卡死流程
                 player.stats.hp = player.stats.hpMax;
                 if (typeof endEscortRun === "function") endEscortRun(false);
                 if (typeof restartDungeonHubTimers === "function") restartDungeonHubTimers();
                 if (typeof playerLoadStats === "function") playerLoadStats();
                 if (typeof saveData === "function") saveData();
-            if (typeof clearDangerBattleVictoryPending === "function") clearDangerBattleVictoryPending();
+                combatBacklog.length = 0;
+                if (typeof clearDangerBattleVictoryPending === "function") clearDangerBattleVictoryPending();
+                if (typeof clearBondSoulCombatPending === "function") clearBondSoulCombatPending();
+                if (typeof clearOptionalEmotionCombatPending === "function") clearOptionalEmotionCombatPending();
                 return;
             }
             if (typeof mining !== "undefined" && mining && mining.active) {
@@ -882,12 +1506,15 @@ const hpValidation = () => {
                 clearInterval(dungeonTimer);
                 clearInterval(playTimer);
                 player.inCombat = false;
+                clearCombatTimerSyncOnly();
                 player.stats.hp = player.stats.hpMax;
                 if (typeof endMiningRun === "function") endMiningRun(false);
                 if (typeof restartDungeonHubTimers === "function") restartDungeonHubTimers();
                 if (typeof playerLoadStats === "function") playerLoadStats();
                 if (typeof saveData === "function") saveData();
                 if (typeof clearDangerBattleVictoryPending === "function") clearDangerBattleVictoryPending();
+                if (typeof clearBondSoulCombatPending === "function") clearBondSoulCombatPending();
+                if (typeof clearOptionalEmotionCombatPending === "function") clearOptionalEmotionCombatPending();
                 return;
             }
 
@@ -901,102 +1528,204 @@ const hpValidation = () => {
             clearInterval(dungeonTimer);
             clearInterval(playTimer);
             if (typeof clearDangerBattleVictoryPending === "function") clearDangerBattleVictoryPending();
+            if (typeof clearBondSoulCombatPending === "function") clearBondSoulCombatPending();
+            if (typeof clearOptionalEmotionCombatPending === "function") clearOptionalEmotionCombatPending();
             progressReset();
             setTimeout(function () {
                 allocationPopup();
             }, 350);
         });
-        endCombat();
+        if (!dongtianDefeatFlushDone) {
+            endCombat();
+        }
     } else if (enemy.stats.hp < 1) {
+        if (enemyDead) return;
+        /** 已记玩家败亡时，不再按斩杀结算（含押镖 claim），避免与 defeat 竞态 */
+        if (playerDead) {
+            try {
+                if (typeof escort !== "undefined" && escort && escort.active) {
+                    escort.pendingBattle = null;
+                    escort.awaitingCombatOutcome = false;
+                }
+                if (typeof mining !== "undefined" && mining && mining.active) {
+                    mining.pendingBattle = null;
+                    mining.awaitingCombatOutcome = false;
+                }
+            } catch (ePend2) {}
+            return;
+        }
         // Gives out all the reward and show the claim button
         enemy.stats.hp = 0;
         enemyDead = true;
-        player.kills++;
-        dungeon.statistics.kills++;
-        addCombatLog(pickCombatKillLine());
-        var expLines = [
-            `杀伐止息，天地气机为之一清。你吐纳三息，将殒落残韵炼化入体，丹田微热——此番竟汲取了 <b>${nFormatter(enemy.rewards.exp)}</b> 点修为。`,
-            `敌焰既灭，灵机回流。你闭目导引，将散逸修为尽数纳入丹田：<b>${nFormatter(enemy.rewards.exp)}</b> 点感悟入账。`,
-            `残响未绝，你已运转周天，把战场余温炼作进境之阶——此番修为 <b>${nFormatter(enemy.rewards.exp)}</b> 点。`,
-            `一缕清灵自顶门灌入，如醍醐灌顶；你心知此战未白打，竟得 <b>${nFormatter(enemy.rewards.exp)}</b> 点修为。`
-        ];
-        addCombatLog(expLines[Math.floor(Math.random() * expLines.length)]);
-        playerExpGain();
-        var goldLines = [
-            `灵石自虚空簌簌而落，叮当作响。你袖袍一卷，尽数拢入囊中：入手 <i class="fas fa-coins" style="color: #FFD700;"></i><b>${nFormatter(enemy.rewards.gold)}</b> 枚。`,
-            `金屑如雨，落地成音。你俯拾之间，已纳 <i class="fas fa-coins" style="color: #FFD700;"></i><b>${nFormatter(enemy.rewards.gold)}</b> 枚灵石。`,
-            `虚空裂隙里漏下几串灵石，撞地清越。你尽数收起，共 <i class="fas fa-coins" style="color: #FFD700;"></i><b>${nFormatter(enemy.rewards.gold)}</b> 枚。`,
-            `灵潮退后，地上唯余灵石微光。你点数入囊：<i class="fas fa-coins" style="color: #FFD700;"></i><b>${nFormatter(enemy.rewards.gold)}</b> 枚。`
-        ];
-        addCombatLog(goldLines[Math.floor(Math.random() * goldLines.length)]);
-        if (typeof pickXiuxianQuote === "function" && Math.random() < 0.44) {
-            addCombatLog(pickXiuxianQuote("victory"));
-        }
-        if (typeof pickXiuxianQuote === "function" && Math.random() < 0.4) {
-            addCombatLog(pickXiuxianQuote("combat_aftermath"));
-        }
-        player.gold += enemy.rewards.gold;
-        playerLoadStats();
-        if (enemy.rewards.drop) {
-            createEquipmentPrint("combat");
-        }
-        if (typeof tryRollPetDrop === "function") {
-            tryRollPetDrop("combat");
-        }
-        if (typeof tryRollEnhanceStoneDrop === "function") {
-            tryRollEnhanceStoneDrop(true, false);
-        }
-        if (typeof tryRollEnchantStoneDrop === "function") {
-            tryRollEnchantStoneDrop(true, false);
-        }
-        if (typeof tryRollSocketOpenerFromEliteKill === "function") {
-            tryRollSocketOpenerFromEliteKill();
-        }
-        if (typeof tryRollTalentFruitFromEliteKill === "function") {
-            tryRollTalentFruitFromEliteKill();
-        }
-        if (
-            enemy &&
-            enemy.bossRole === "guardian" &&
-            typeof escort !== "undefined" &&
-            escort &&
-            !escort.active &&
-            typeof grantSocketOpenerDungeonGuardian === "function"
-        ) {
-            grantSocketOpenerDungeonGuardian();
-        }
-        if (
-            enemy &&
-            enemy.bossRole === "guardian" &&
-            typeof escort !== "undefined" &&
-            escort &&
-            !escort.active &&
-            typeof grantTalentFruitDungeonGuardian === "function"
-        ) {
-            grantTalentFruitDungeonGuardian();
-        }
-        if (typeof claimTreasureAmbushReward === "function") {
-            claimTreasureAmbushReward();
-        }
-        if (typeof claimEscortBattleVictory === "function") {
-            claimEscortBattleVictory();
-        }
-        if (typeof claimMiningBattleVictory === "function") {
-            claimMiningBattleVictory();
-        }
-        if (typeof claimDangerBattleVictory === "function") {
-            claimDangerBattleVictory();
+        var isWushenArena = !!(enemy && enemy.wushenArena && enemy.wushenArena.token);
+
+        if (!isWushenArena) {
+            player.kills++;
+            dungeon.statistics.kills++;
         }
 
-        // Recover 20% of players health
-        player.stats.hp += Math.round((player.stats.hpMax * 20) / 100);
-        playerLoadStats();
+        if (isWushenArena) {
+            addCombatLog(
+                `武神坛切磋：对方气机溃散，你再进一步便见分晓——这一阵，是你胜了。`
+            );
+            player.stats.hp += Math.round((player.stats.hpMax * 20) / 100);
+            if (player.stats.hp > player.stats.hpMax) player.stats.hp = player.stats.hpMax;
+            playerLoadStats();
+        } else {
+            try {
+                addCombatLog(pickCombatKillLine());
+                if (enemy && (!enemy.rewards || typeof enemy.rewards !== "object")) {
+                    enemy.rewards = { exp: 0, gold: 0, drop: false };
+                }
+                var er = enemy && enemy.rewards && typeof enemy.rewards === "object" ? enemy.rewards : { exp: 0, gold: 0, drop: false };
+                var expAmt = typeof er.exp === "number" ? er.exp : 0;
+                if (expAmt > 0) {
+                    if (typeof isDongtianDungeonPlayerExpBlockedByLevelCap === "function" && isDongtianDungeonPlayerExpBlockedByLevelCap()) {
+                        addCombatLog(`<span class="Common">本层境下修为已达当前上限，散逸灵机无法再入丹田。</span>`);
+                    } else {
+                        var expLogAmt =
+                            typeof peekDongtianSameRoomPlayerExpGain === "function"
+                                ? peekDongtianSameRoomPlayerExpGain(expAmt)
+                                : expAmt;
+                        var expLines = [
+                            `杀伐止息，天地气机为之一清。你吐纳三息，将殒落残韵炼化入体，丹田微热——此番竟汲取了 <b>${nFormatter(expLogAmt)}</b> 点修为。`,
+                            `敌焰既灭，灵机回流。你闭目导引，将散逸修为尽数纳入丹田：<b>${nFormatter(expLogAmt)}</b> 点感悟入账。`,
+                            `残响未绝，你已运转周天，把战场余温炼作进境之阶——此番修为 <b>${nFormatter(expLogAmt)}</b> 点。`,
+                            `一缕清灵自顶门灌入，如醍醐灌顶；你心知此战未白打，竟得 <b>${nFormatter(expLogAmt)}</b> 点修为。`
+                        ];
+                        addCombatLog(expLines[Math.floor(Math.random() * expLines.length)]);
+                        playerExpGain();
+                    }
+                }
+                var goldN = typeof er.gold === "number" && isFinite(er.gold) ? Math.max(0, er.gold) : 0;
+                var goldLines = [
+                    `灵石自虚空簌簌而落，叮当作响。你袖袍一卷，尽数拢入囊中：入手 <i class="fas fa-coins" style="color: #FFD700;"></i><b>${nFormatter(goldN)}</b> 枚。`,
+                    `金屑如雨，落地成音。你俯拾之间，已纳 <i class="fas fa-coins" style="color: #FFD700;"></i><b>${nFormatter(goldN)}</b> 枚灵石。`,
+                    `虚空裂隙里漏下几串灵石，撞地清越。你尽数收起，共 <i class="fas fa-coins" style="color: #FFD700;"></i><b>${nFormatter(goldN)}</b> 枚。`,
+                    `灵潮退后，地上唯余灵石微光。你点数入囊：<i class="fas fa-coins" style="color: #FFD700;"></i><b>${nFormatter(goldN)}</b> 枚。`
+                ];
+                addCombatLog(goldLines[Math.floor(Math.random() * goldLines.length)]);
+                if (typeof pickXiuxianQuote === "function" && Math.random() < 0.44) {
+                    addCombatLog(pickXiuxianQuote("victory"));
+                }
+                if (typeof pickXiuxianQuote === "function" && Math.random() < 0.4) {
+                    addCombatLog(pickXiuxianQuote("combat_aftermath"));
+                }
+                player.gold += goldN;
+                playerLoadStats();
+                if (er.drop) {
+                    createEquipmentPrint("combat");
+                }
+                if (typeof tryRollPetDrop === "function") {
+                    tryRollPetDrop("combat");
+                }
+                if (typeof tryRollEnhanceStoneDrop === "function") {
+                    tryRollEnhanceStoneDrop(true, false);
+                }
+                if (typeof tryRollEnchantStoneDrop === "function") {
+                    tryRollEnchantStoneDrop(true, false);
+                }
+                if (typeof tryRollSocketOpenerFromEliteKill === "function") {
+                    tryRollSocketOpenerFromEliteKill();
+                }
+                if (typeof tryRollTalentFruitFromEliteKill === "function") {
+                    tryRollTalentFruitFromEliteKill();
+                }
+                if (typeof tryRollLifePotionFromQualityKill === "function") {
+                    tryRollLifePotionFromQualityKill();
+                }
+                if (typeof tryRollPetExpFruitFromDungeonBossKill === "function") {
+                    tryRollPetExpFruitFromDungeonBossKill();
+                }
+                /** 秘境第 20 劫 · 层主（本劫最后殿门镇守）：固定掉落神萃石 ×1 */
+                if (
+                    enemy &&
+                    enemy.bossRole === "guardian" &&
+                    typeof dungeon !== "undefined" &&
+                    dungeon &&
+                    dungeon.progress &&
+                    Math.floor(Number(dungeon.progress.floor) || 1) === 20 &&
+                    typeof escort !== "undefined" &&
+                    escort &&
+                    !escort.active &&
+                    typeof mining !== "undefined" &&
+                    mining &&
+                    !mining.active &&
+                    !enemy.molongRaid &&
+                    !enemy.wushenArena &&
+                    typeof addMaterial === "function"
+                ) {
+                    if (typeof ensureInventoryMaterials === "function") ensureInventoryMaterials();
+                    addMaterial("god_essence_stone", 1);
+                    addCombatLog(
+                        '<span class="Legendary">第20劫层主伏诛，残蕴凝作神萃：入手 <b>神萃石</b> ×1。</span>'
+                    );
+                    if (typeof renderInventoryMaterialsPanel === "function") renderInventoryMaterialsPanel();
+                }
+                if (
+                    enemy &&
+                    enemy.bossRole === "guardian" &&
+                    typeof escort !== "undefined" &&
+                    escort &&
+                    !escort.active &&
+                    typeof grantSocketOpenerDungeonGuardian === "function"
+                ) {
+                    grantSocketOpenerDungeonGuardian();
+                }
+                if (
+                    enemy &&
+                    enemy.bossRole === "guardian" &&
+                    typeof escort !== "undefined" &&
+                    escort &&
+                    !escort.active &&
+                    typeof grantTalentFruitDungeonGuardian === "function"
+                ) {
+                    grantTalentFruitDungeonGuardian();
+                }
+                if (typeof claimTreasureAmbushReward === "function") {
+                    claimTreasureAmbushReward();
+                }
+                if (typeof claimEscortBattleVictory === "function") {
+                    claimEscortBattleVictory();
+                }
+                if (typeof claimMiningBattleVictory === "function") {
+                    claimMiningBattleVictory();
+                }
+                if (typeof claimDangerBattleVictory === "function") {
+                    claimDangerBattleVictory();
+                }
+                if (typeof claimBondSoulBattleVictory === "function") {
+                    claimBondSoulBattleVictory();
+                }
+                if (typeof claimOptionalEmotionCombatVictories === "function") {
+                    claimOptionalEmotionCombatVictories();
+                }
+
+                // Recover 20% of players health
+                player.stats.hp += Math.round((player.stats.hpMax * 20) / 100);
+                playerLoadStats();
+            } catch (eVictoryRewards) {
+                try {
+                    console.error("combat victory rewards", eVictoryRewards);
+                } catch (eC) {}
+                try {
+                    addCombatLog(
+                        '<span class="Common">结算机缘时气机岔了一瞬，仍可收纳战利；若灵石/感悟有异请反馈。</span>'
+                    );
+                } catch (eL) {}
+            }
+        }
 
         // Close the battle panel
-        document.querySelector("#battleButton").addEventListener("click", function () {
+        safeAttachBattleButtonClick(function () {
+            var wTok = null;
+            if (isWushenArena && enemy && enemy.wushenArena && enemy.wushenArena.token) {
+                wTok = enemy.wushenArena.token;
+                enemy.wushenArena = null;
+            }
 
             // Clear combat backlog and transition to dungeon exploration
-            let dimDungeon = document.querySelector('#dungeon-main');
+            let dimDungeon = document.querySelector("#dungeon-main");
             dimDungeon.style.filter = "brightness(100%)";
             if (typeof dungeon !== "undefined" && dungeon && dungeon.status) {
                 dungeon.status.event = false;
@@ -1004,6 +1733,40 @@ const hpValidation = () => {
             combatPanel.style.display = "none";
             enemyDead = false;
             combatBacklog.length = 0;
+
+            // 押镖/地脉：仅当本趟确实点入过斗法且 claim 未清掉抉择态时，关板自愈（勿在驿站/矿兽抉择等非战斗态误清 event，否则下一秒 tick 会再掷奇遇覆盖选项）
+            try {
+                if (
+                    typeof escort !== "undefined" &&
+                    escort &&
+                    escort.active &&
+                    escort.status &&
+                    escort.status.event &&
+                    !escort.pendingBattle &&
+                    escort.awaitingCombatOutcome
+                ) {
+                    escort.status.event = false;
+                    escort.awaitingCombatOutcome = false;
+                }
+                if (
+                    typeof mining !== "undefined" &&
+                    mining &&
+                    mining.active &&
+                    mining.status &&
+                    mining.status.event &&
+                    !mining.pendingBattle &&
+                    mining.awaitingCombatOutcome
+                ) {
+                    mining.status.event = false;
+                    mining.awaitingCombatOutcome = false;
+                }
+            } catch (eRunBar) {}
+            if (typeof syncRunBarModeText === "function") syncRunBarModeText();
+            if (typeof updateDungeonLog === "function") updateDungeonLog();
+
+            if (wTok && typeof window.finishWushenArenaCombat === "function") {
+                window.finishWushenArenaCombat(true, wTok);
+            }
         });
         endCombat();
     }
@@ -1014,9 +1777,26 @@ const playerAttack = () => {
     if (!player.inCombat) {
         return;
     }
-    if (player.inCombat) {
+    if (enemyDead || playerDead) {
+        return;
     }
+    if (enemy && enemy.molongRaid && player.stats.hp < 1) {
+        var _pdDeadHost = clampCombatDelayMs(getPlayerAttackIntervalMs(), 250);
+        touchPlayerAtkDueFromDelay(_pdDeadHost);
+        __combatNextPlayerWallAt = Date.now() + _pdDeadHost;
+        syncCombatWallTimersToPlayer();
+        setTimeout(function () {
+            if (player.inCombat) playerAttack();
+        }, _pdDeadHost);
+        return;
+    }
+    /** 本段执行期间不看门狗误判断链（执行可能 > 单帧） */
+    __playerAtkDueAt = Date.now() + 90000;
+    var _pdWhileSwing = clampCombatDelayMs(getPlayerAttackIntervalMs(), 250);
+    __combatNextPlayerWallAt = Date.now() + _pdWhileSwing;
+    syncCombatWallTimersToPlayer();
 
+    try {
     // Calculates the damage and attacks the enemy
     let crit;
     let damage = player.stats.atk * (player.stats.atk / (player.stats.atk + enemy.stats.def));
@@ -1033,34 +1813,55 @@ const playerAttack = () => {
         dmgtype = "点真元伤";
         damage = Math.round(damage);
     }
+    var molongBossHiddenDodged = rollMolongRaidBossHiddenDodge();
+    if (molongBossHiddenDodged) {
+        crit = false;
+        dmgtype = "点真元伤";
+        damage = 0;
+    }
 
     objectValidation();
     var equippedP = player.equippedPassives || [];
-    var cp = typeof aggregateCombatPassives === "function" ? aggregateCombatPassives(equippedP) : {};
-    if (crit && cp.onCrit_damageMultPct) {
-        damage = Math.round(damage * (1 + cp.onCrit_damageMultPct / 100));
+    /** 副本大厅（魔龙）：房主出手按开战时上传的武神坛式快照中的 combatPassives，与面板数值一致 */
+    var cp;
+    if (enemy && enemy.molongRaid && enemy.molongRaid.hostCombatPassives && typeof enemy.molongRaid.hostCombatPassives === "object") {
+        cp = enemy.molongRaid.hostCombatPassives;
+    } else {
+        cp = typeof aggregateCombatPassives === "function" ? aggregateCombatPassives(equippedP) : {};
     }
-    if (cp.onHit_enemyCurrHpPct) {
-        damage += Math.round((enemy.stats.hp * cp.onHit_enemyCurrHpPct) / 100);
+    if (!molongBossHiddenDodged) {
+        if (crit && cp.onCrit_damageMultPct) {
+            damage = Math.round(damage * (1 + cp.onCrit_damageMultPct / 100));
+        }
+        if (cp.onHit_enemyCurrHpPct) {
+            damage += Math.round((enemy.stats.hp * cp.onHit_enemyCurrHpPct) / 100);
+        }
+        if (cp.onHit_enemyMissingHpPct) {
+            var enMiss = Math.max(0, (enemy.stats.hpMax || 0) - enemy.stats.hp);
+            damage += Math.round((enMiss * cp.onHit_enemyMissingHpPct) / 100);
+        }
+        if (cp.onHit_selfMissingHpPct) {
+            var plMiss = Math.max(0, player.stats.hpMax - player.stats.hp);
+            damage += Math.round((plMiss * cp.onHit_selfMissingHpPct) / 100);
+        }
+        if (cp.onHit_selfHpMaxPct) {
+            damage += Math.round((player.stats.hpMax * cp.onHit_selfHpMaxPct) / 100);
+        }
+        if (cp.onHit_flat) {
+            damage += Math.round(cp.onHit_flat);
+        }
+        if (cp.onHit_damageMultPct) {
+            damage = Math.round(damage + (damage * cp.onHit_damageMultPct) / 100);
+        }
     }
-    if (cp.onHit_enemyMissingHpPct) {
-        var enMiss = Math.max(0, (enemy.stats.hpMax || 0) - enemy.stats.hp);
-        damage += Math.round((enMiss * cp.onHit_enemyMissingHpPct) / 100);
-    }
-    if (cp.onHit_selfMissingHpPct) {
-        var plMiss = Math.max(0, player.stats.hpMax - player.stats.hp);
-        damage += Math.round((plMiss * cp.onHit_selfMissingHpPct) / 100);
-    }
-    if (cp.onHit_selfHpMaxPct) {
-        damage += Math.round((player.stats.hpMax * cp.onHit_selfHpMaxPct) / 100);
-    }
-    if (cp.onHit_flat) {
-        damage += Math.round(cp.onHit_flat);
-    }
-    if (cp.onHit_damageMultPct) {
-        damage = Math.round(damage + (damage * cp.onHit_damageMultPct) / 100);
+    /** 武神坛：对手快照中的承伤功法（减伤 / 反伤） */
+    var cpOpp = enemy && enemy.wushenArena && enemy.wushenArena.combatPassives ? enemy.wushenArena.combatPassives : null;
+    if (!molongBossHiddenDodged && cpOpp && cpOpp.dmgTakenReducePct) {
+        damage = Math.round(damage - (damage * cpOpp.dmgTakenReducePct) / 100);
+        if (damage < 1) damage = 1;
     }
     if (
+        !molongBossHiddenDodged &&
         typeof dungeon !== "undefined" &&
         dungeon &&
         dungeon.settings &&
@@ -1070,17 +1871,19 @@ const playerAttack = () => {
     ) {
         damage = Math.round(damage * dungeon.settings.chainTitleBuff.atkMul);
     }
-    if (cp.onHit_stackAtk) {
-        player.tempStats.atk = (player.tempStats.atk || 0) + cp.onHit_stackAtk;
-        objectValidation();
-        if (typeof calculateStats === "function") calculateStats();
-        saveData();
-    }
-    if (cp.onHit_stackAtkSpd) {
-        player.tempStats.atkSpd = (player.tempStats.atkSpd || 0) + cp.onHit_stackAtkSpd;
-        objectValidation();
-        if (typeof calculateStats === "function") calculateStats();
-        saveData();
+    if (!molongBossHiddenDodged) {
+        if (cp.onHit_stackAtk) {
+            player.tempStats.atk = (player.tempStats.atk || 0) + cp.onHit_stackAtk;
+            objectValidation();
+            if (typeof calculateStats === "function") calculateStats();
+            saveData();
+        }
+        if (cp.onHit_stackAtkSpd) {
+            player.tempStats.atkSpd = (player.tempStats.atkSpd || 0) + cp.onHit_stackAtkSpd;
+            objectValidation();
+            if (typeof calculateStats === "function") calculateStats();
+            saveData();
+        }
     }
 
     // Lifesteal formula（含被动「以战养战」类额外吸血%）
@@ -1088,7 +1891,9 @@ const playerAttack = () => {
     let lifesteal = Math.round(damage * (vampPct / 100));
 
     var styleTag = getPlayerWeaponCombatStyle();
-    var incomingMeta = applyEnemyUniqueOnIncomingHit(damage, crit, styleTag);
+    var incomingMeta = molongBossHiddenDodged
+        ? { damage: 0, dodged: false, chargedInterrupted: false, styleNote: "" }
+        : applyEnemyUniqueOnIncomingHit(damage, crit, styleTag);
     damage = incomingMeta.damage;
 
     // Apply the calculations to combat
@@ -1097,30 +1902,46 @@ const playerAttack = () => {
     lifesteal = Math.round(shieldResult.hpDamage * (vampPct / 100));
     player.stats.hp += lifesteal;
     const shownDamage = incomingMeta.dodged ? 0 : (shieldResult.hpDamage > 0 ? shieldResult.hpDamage : damage);
-    const dmgStr = nFormatter(shownDamage) + dmgtype;
-    let hitLine = pickPlayerWeaponHitLine(crit, enemy.name, dmgStr);
-    if (shieldResult.absorbed > 0) {
-        hitLine += ` 护盾震鸣，抵消了 <b>${nFormatter(shieldResult.absorbed)}</b> 点伤害。`;
-        if (shieldResult.shieldBroken) {
-            hitLine += " 你一击碎盾，敌势骤乱，三息之间其护体尽失（易伤 +20%）。";
+    if (enemy && enemy.molongRaid && shieldResult.hpDamage > 0) {
+        enemy.molongRaid.damageHost += shieldResult.hpDamage;
+        if (typeof window.refreshMolongCombatHud === "function") window.refreshMolongCombatHud();
+    }
+    var hitLine;
+    if (molongBossHiddenDodged) {
+        hitLine = pickMolongRaidBossHiddenDodgePlayerLine();
+    } else {
+        const dmgStr = nFormatter(shownDamage) + dmgtype;
+        hitLine = pickPlayerWeaponHitLine(crit, enemy.name, dmgStr);
+        if (shieldResult.absorbed > 0) {
+            hitLine += ` 护盾震鸣，抵消了 <b>${nFormatter(shieldResult.absorbed)}</b> 点伤害。`;
+            if (shieldResult.shieldBroken) {
+                hitLine += " 你一击碎盾，敌势骤乱，三息之间其护体尽失（易伤 +20%）。";
+            }
         }
-    }
-    if (incomingMeta.dodged) {
-        hitLine += " 对方身形化作残影，这一击几乎被完全卸去。";
-    }
-    if (incomingMeta.chargedInterrupted) {
-        hitLine += " 暴击正中要害，硬生生打断了对方蓄力！";
-    }
-    if (incomingMeta.styleNote) {
-        hitLine += " " + incomingMeta.styleNote;
-    }
-    var thornReflect = applyEnemyThornsReflect(shieldResult.hpDamage, styleTag);
-    if (thornReflect > 0) {
-        player.stats.hp -= thornReflect;
-        hitLine += ` 对方荆棘反震，你反受 <b>${nFormatter(thornReflect)}</b> 点真元伤。`;
-    }
-    if (lifesteal > 0) {
-        hitLine += ` 丝丝生机自伤口反哺入体，气血回流 <b>${nFormatter(lifesteal)}</b>。`;
+        if (incomingMeta.dodged) {
+            hitLine += " 对方身形化作残影，这一击几乎被完全卸去。";
+        }
+        if (incomingMeta.chargedInterrupted) {
+            hitLine += " 暴击正中要害，硬生生打断了对方蓄力！";
+        }
+        if (incomingMeta.styleNote) {
+            hitLine += " " + incomingMeta.styleNote;
+        }
+        var thornReflect = applyEnemyThornsReflect(shieldResult.hpDamage, styleTag);
+        if (thornReflect > 0) {
+            player.stats.hp -= thornReflect;
+            hitLine += ` 对方荆棘反震，你反受 <b>${nFormatter(thornReflect)}</b> 点真元伤。`;
+        }
+        if (cpOpp && cpOpp.thornsPctOfTaken && shieldResult.hpDamage > 0) {
+            var trW = Math.round((shieldResult.hpDamage * cpOpp.thornsPctOfTaken) / 100);
+            if (trW > 0) {
+                player.stats.hp -= trW;
+                hitLine += ` 对方功法反噬，你受 <b>${nFormatter(trW)}</b> 点真元伤。`;
+            }
+        }
+        if (lifesteal > 0) {
+            hitLine += ` 丝丝生机自伤口反哺入体，气血回流 <b>${nFormatter(lifesteal)}</b>。`;
+        }
     }
     addCombatLog(hitLine);
     if (triggerEnemyBerserkIfNeeded()) {
@@ -1141,26 +1962,41 @@ const playerAttack = () => {
 
     // Damage numbers
     const dmgContainer = document.querySelector("#dmg-container");
-    const dmgNumber = document.createElement("p");
-    dmgNumber.classList.add("dmg-numbers");
-    if (crit) {
-        dmgNumber.style.color = "gold";
-        dmgNumber.innerHTML = nFormatter(shownDamage) + "!";
-    } else {
-        dmgNumber.innerHTML = nFormatter(shownDamage);
+    if (dmgContainer) {
+        const dmgNumber = document.createElement("p");
+        dmgNumber.classList.add("dmg-numbers");
+        if (crit) {
+            dmgNumber.style.color = "gold";
+            dmgNumber.innerHTML = nFormatter(shownDamage) + "!";
+        } else {
+            dmgNumber.innerHTML = nFormatter(shownDamage);
+        }
+        dmgContainer.appendChild(dmgNumber);
+        setTimeout(function () {
+            try {
+                if (dmgNumber.parentNode === dmgContainer) dmgContainer.removeChild(dmgNumber);
+            } catch (eRm) {}
+        }, 370);
     }
-    dmgContainer.appendChild(dmgNumber);
-    setTimeout(() => {
-        dmgContainer.removeChild(dmgContainer.lastElementChild);
-    }, 370);
 
-    // Attack Timer
+    } catch (eAtk) {
+        try {
+            console.error("playerAttack", eAtk);
+        } catch (eLog) {}
+        if (typeof addCombatLog === "function") {
+            addCombatLog('<span class="Common">斗法气机岔了一瞬，已强行续接下一式。</span>');
+        }
+    }
+
+    // Attack Timer（hpValidation 内若已 endCombat，此处 inCombat 为 false，不再排程）
     if (player.inCombat) {
-        setTimeout(() => {
-            if (player.inCombat) {
-                playerAttack();
-            }
-        }, (100 / player.stats.atkSpd) * COMBAT_PACE_SLOW_MULT);
+        var _pd = clampCombatDelayMs(getPlayerAttackIntervalMs(), 250);
+        touchPlayerAtkDueFromDelay(_pd);
+        __combatNextPlayerWallAt = Date.now() + _pd;
+        syncCombatWallTimersToPlayer();
+        setTimeout(function () {
+            if (player.inCombat) playerAttack();
+        }, _pd);
     }
 }
 
@@ -1168,11 +2004,22 @@ const petAttack = () => {
     if (!player.inCombat) {
         return;
     }
+    if (enemyDead || playerDead) {
+        return;
+    }
+    /** 武神坛切磋：仅角色快照对决，灵宠不参与，避免进攻方多一段输出 */
+    if (enemy && enemy.wushenArena) {
+        return;
+    }
+    if (enemy && enemy.molongRaid) {
+        return;
+    }
     var pcs = typeof getPetCombatStats === "function" ? getPetCombatStats() : null;
     if (!pcs || !enemy || enemy.stats.hp < 1) {
         return;
     }
 
+    try {
     let crit;
     let damage = pcs.atk * (pcs.atk / (pcs.atk + enemy.stats.def));
     let dmgRange = 0.9 + Math.random() * 0.2;
@@ -1253,44 +2100,213 @@ const petAttack = () => {
             petDmgNum.innerHTML = nFormatter(petShownDamage);
         }
         petDmgBox.appendChild(petDmgNum);
-        setTimeout(() => {
-            if (petDmgBox.lastElementChild) petDmgBox.removeChild(petDmgBox.lastElementChild);
+        setTimeout(function () {
+            try {
+                if (petDmgNum.parentNode === petDmgBox) petDmgBox.removeChild(petDmgNum);
+            } catch (ePetRm) {}
         }, 370);
     }
 
+    } catch (ePet) {
+        try {
+            console.error("petAttack", ePet);
+        } catch (eL) {}
+    }
+
     if (player.inCombat) {
-        setTimeout(() => {
+        var pasp2 = Math.max(0.06, Math.min(2.5, pcs.atkSpd || 0.06));
+        var petD2 = clampCombatDelayMs((100 / pasp2) * COMBAT_PACE_SLOW_MULT, 300);
+        setTimeout(function () {
             if (player.inCombat) {
                 petAttack();
             }
-        }, (100 / pcs.atkSpd) * COMBAT_PACE_SLOW_MULT);
+        }, petD2);
     }
 };
+
+function molongGuestAttack() {
+    if (!player.inCombat || enemyDead || playerDead) return;
+    if (!enemy || !enemy.molongRaid || !molongGuestCombatStats) return;
+    if (molongGuestCombatStats.hp < 1) {
+        var gAspR = Math.max(0.06, Math.min(2.5, molongGuestCombatStats.atkSpd || 0.06));
+        var gDelR = clampCombatDelayMs((100 / gAspR) * COMBAT_PACE_SLOW_MULT, 250);
+        setTimeout(function () {
+            if (player.inCombat) molongGuestAttack();
+        }, gDelR);
+        return;
+    }
+    try {
+        var gs = molongGuestCombatStats;
+        var pen = typeof gs.pen === "number" && isFinite(gs.pen) ? gs.pen : 0;
+        var effDef = Math.max(0, enemy.stats.def - pen * 0.25);
+        var damage = gs.atk * (gs.atk / (gs.atk + effDef));
+        var dmgRange = 0.9 + Math.random() * 0.2;
+        damage = damage * dmgRange;
+        if (Math.floor(Math.random() * 100) < gs.critRate) {
+            dmgtype = "点暴伤";
+            damage = Math.round(damage * (1 + (gs.critDmg / 100)));
+        } else {
+            dmgtype = "点真元伤";
+            damage = Math.round(damage);
+        }
+        var molongBossHiddenDodged = rollMolongRaidBossHiddenDodge();
+        if (molongBossHiddenDodged) {
+            dmgtype = "点真元伤";
+            damage = 0;
+        }
+
+        var gcp =
+            enemy.molongRaid && enemy.molongRaid.guestCombatPassives && typeof enemy.molongRaid.guestCombatPassives === "object"
+                ? enemy.molongRaid.guestCombatPassives
+                : {};
+        var gCrit = dmgtype === "点暴伤";
+        if (!molongBossHiddenDodged) {
+            if (gCrit && gcp.onCrit_damageMultPct) {
+                damage = Math.round(damage * (1 + gcp.onCrit_damageMultPct / 100));
+            }
+            if (gcp.onHit_enemyCurrHpPct) {
+                damage += Math.round((enemy.stats.hp * gcp.onHit_enemyCurrHpPct) / 100);
+            }
+            if (gcp.onHit_enemyMissingHpPct) {
+                var enMissG = Math.max(0, (enemy.stats.hpMax || 0) - enemy.stats.hp);
+                damage += Math.round((enMissG * gcp.onHit_enemyMissingHpPct) / 100);
+            }
+            if (gcp.onHit_selfMissingHpPct) {
+                var gSelfMiss = Math.max(0, gs.hpMax - gs.hp);
+                damage += Math.round((gSelfMiss * gcp.onHit_selfMissingHpPct) / 100);
+            }
+            if (gcp.onHit_selfHpMaxPct) {
+                damage += Math.round((gs.hpMax * gcp.onHit_selfHpMaxPct) / 100);
+            }
+            if (gcp.onHit_flat) {
+                damage += Math.round(gcp.onHit_flat);
+            }
+            if (gcp.onHit_damageMultPct) {
+                damage = Math.round(damage + (damage * gcp.onHit_damageMultPct) / 100);
+            }
+            if (gcp.onHit_stackAtk) {
+                gs.atk = Math.round(gs.atk + gcp.onHit_stackAtk);
+            }
+            if (gcp.onHit_stackAtkSpd) {
+                gs.atkSpd = Math.min(2.5, (gs.atkSpd || 0.06) + gcp.onHit_stackAtkSpd);
+            }
+        }
+
+        var shieldResult = absorbDamageByEnemyShield(damage);
+        enemy.stats.hp -= shieldResult.hpDamage;
+        var shownDamage = shieldResult.hpDamage > 0 ? shieldResult.hpDamage : damage;
+        if (gcp.onHit_vampBonusPct && shieldResult.hpDamage > 0) {
+            var gHeal = Math.round((shieldResult.hpDamage * gcp.onHit_vampBonusPct) / 100);
+            if (gHeal > 0) {
+                gs.hp = Math.min(gs.hpMax, gs.hp + gHeal);
+            }
+        }
+        if (enemy.molongRaid && shieldResult.hpDamage > 0) {
+            enemy.molongRaid.damageGuest += shieldResult.hpDamage;
+            if (typeof window.refreshMolongCombatHud === "function") window.refreshMolongCombatHud();
+        }
+        var gn = (enemy.molongRaid && enemy.molongRaid.guestName) || "队员";
+        if (molongBossHiddenDodged) {
+            addCombatLog(pickMolongRaidBossHiddenDodgeGuestLine(gn));
+        } else {
+            addCombatLog(
+                `<span class="Uncommon">${gn}</span> 一式落在龙躯上，造成 <b>${nFormatter(shownDamage)}</b>${dmgtype}。`
+            );
+        }
+        hpValidation();
+        playerLoadStats();
+        enemyLoadStats();
+    } catch (eG) {
+        try {
+            console.error("molongGuestAttack", eG);
+        } catch (e2) {}
+    }
+    if (player.inCombat && !enemyDead && !playerDead) {
+        var gAsp2 = Math.max(0.06, Math.min(2.5, molongGuestCombatStats.atkSpd || 0.06));
+        var gDel2 = clampCombatDelayMs((100 / gAsp2) * COMBAT_PACE_SLOW_MULT, 250);
+        setTimeout(function () {
+            if (player.inCombat) molongGuestAttack();
+        }, gDel2);
+    }
+}
 
 const enemyAttack = () => {
     if (!player.inCombat) {
         return;
     }
-    if (player.inCombat) {
+    if (enemyDead || playerDead) {
+        return;
     }
+    __enemyAtkDueAt = Date.now() + 90000;
+    var _eaWhileSwing = clampCombatDelayMs(getEnemyAttackIntervalMs(), 500);
+    __combatNextEnemyWallAt = Date.now() + _eaWhileSwing;
+    syncCombatWallTimersToPlayer();
 
+    try {
+    var molongTgt = enemy && enemy.molongRaid ? getMolongAttackTarget() : null;
+    var tgtDefForEnemy =
+        molongTgt && molongTgt.stats ? molongTgt.stats.def : player.stats.def;
     // Calculates the damage and attacks the player
-    let damage = enemy.stats.atk * (enemy.stats.atk / (enemy.stats.atk + player.stats.def));
+    let damage = enemy.stats.atk * (enemy.stats.atk / (enemy.stats.atk + tgtDefForEnemy));
+    /** 武神坛：最终伤害后再算吸血（含功法「以战养战」类） */
     let lifesteal = Math.round(enemy.stats.atk * (enemy.stats.vamp / 100));
     // Randomizes the damage by 90% - 110%
     let dmgRange = 0.9 + Math.random() * 0.2;
     damage = damage * dmgRange;
+    var cpAtk = enemy && enemy.wushenArena && enemy.wushenArena.combatPassives ? enemy.wushenArena.combatPassives : null;
+    var wushenCrit = false;
     // Check if the attack is a critical hit
     if (Math.floor(Math.random() * 100) < enemy.stats.critRate) {
+        wushenCrit = true;
         dmgtype = "点暴伤";
         damage = Math.round(damage * (1 + (enemy.stats.critDmg / 100)));
     } else {
         dmgtype = "点真元伤";
         damage = Math.round(damage);
     }
+    if (cpAtk) {
+        if (wushenCrit && cpAtk.onCrit_damageMultPct) {
+            damage = Math.round(damage * (1 + cpAtk.onCrit_damageMultPct / 100));
+        }
+        if (cpAtk.onHit_enemyCurrHpPct) {
+            damage += Math.round((player.stats.hp * cpAtk.onHit_enemyCurrHpPct) / 100);
+        }
+        if (cpAtk.onHit_enemyMissingHpPct) {
+            var plMissW = Math.max(0, player.stats.hpMax - player.stats.hp);
+            damage += Math.round((plMissW * cpAtk.onHit_enemyMissingHpPct) / 100);
+        }
+        if (cpAtk.onHit_selfMissingHpPct) {
+            var enMissW = Math.max(0, (enemy.stats.hpMax || 0) - enemy.stats.hp);
+            damage += Math.round((enMissW * cpAtk.onHit_selfMissingHpPct) / 100);
+        }
+        if (cpAtk.onHit_selfHpMaxPct) {
+            damage += Math.round(((enemy.stats.hpMax || 1) * cpAtk.onHit_selfHpMaxPct) / 100);
+        }
+        if (cpAtk.onHit_flat) {
+            damage += Math.round(cpAtk.onHit_flat);
+        }
+        if (cpAtk.onHit_damageMultPct) {
+            damage = Math.round(damage + (damage * cpAtk.onHit_damageMultPct) / 100);
+        }
+        if (cpAtk.onHit_stackAtk) {
+            enemy.stats.atk = Math.round(enemy.stats.atk + cpAtk.onHit_stackAtk);
+        }
+        if (cpAtk.onHit_stackAtkSpd) {
+            enemy.stats.atkSpd = Math.min(2.85, (enemy.stats.atkSpd || 0.06) + cpAtk.onHit_stackAtkSpd);
+        }
+        if (enemy.wushenArena) {
+            var vAmp = (enemy.stats.vamp || 0) + (cpAtk.onHit_vampBonusPct || 0);
+            lifesteal = Math.round(damage * (vAmp / 100));
+        }
+    }
 
     objectValidation();
-    var cpEn = typeof aggregateCombatPassives === "function" ? aggregateCombatPassives(player.equippedPassives || []) : {};
+    var cpEn =
+        enemy && enemy.molongRaid
+            ? {}
+            : typeof aggregateCombatPassives === "function"
+              ? aggregateCombatPassives(player.equippedPassives || [])
+              : {};
     if (cpEn.dmgTakenReducePct) {
         damage = Math.round(damage - (damage * cpEn.dmgTakenReducePct) / 100);
     }
@@ -1309,30 +2325,45 @@ const enemyAttack = () => {
     var chargeState = applyChargerIntentToEnemyDamage(damage);
     if (chargeState.skipAttack) {
         addCombatLog(`${enemy.name}俯身蓄势，妖气疯狂汇聚——下一击势必石破天惊！`);
-        if (player.inCombat) {
-            setTimeout(() => {
-                if (player.inCombat) {
-                    enemyAttack();
-                }
-            }, (1000 / enemy.stats.atkSpd) * COMBAT_PACE_SLOW_MULT);
-        }
+        var _edSkip = clampCombatDelayMs(getEnemyAttackIntervalMs(), 500);
+        touchEnemyAtkDueFromDelay(_edSkip);
+        __combatNextEnemyWallAt = Date.now() + _edSkip;
+        syncCombatWallTimersToPlayer();
+        setTimeout(function () {
+            if (player.inCombat) {
+                enemyAttack();
+            }
+        }, _edSkip);
         return;
     }
     damage = chargeState.damage;
 
     // Apply the calculations
-    player.stats.hp -= damage;
-    if (cpEn.thornsPctOfTaken) {
-        enemy.stats.hp -= Math.round((damage * cpEn.thornsPctOfTaken) / 100);
-    }
-    enemy.stats.hp += lifesteal;
     var summonBurst = tryTriggerSummonerBurst();
-    if (summonBurst > 0) {
-        player.stats.hp -= summonBurst;
+    if (enemy && enemy.molongRaid && molongTgt && molongTgt.stats) {
+        molongTgt.stats.hp -= damage;
+        if (summonBurst > 0) molongTgt.stats.hp -= summonBurst;
+        enemy.stats.hp += lifesteal;
+    } else {
+        player.stats.hp -= damage;
+        if (cpEn.thornsPctOfTaken) {
+            enemy.stats.hp -= Math.round((damage * cpEn.thornsPctOfTaken) / 100);
+        }
+        enemy.stats.hp += lifesteal;
+        if (summonBurst > 0) {
+            player.stats.hp -= summonBurst;
+        }
     }
     const totalEnemyDamage = damage + summonBurst;
     const enDmgStr = nFormatter(totalEnemyDamage) + dmgtype;
-    const enemyHitLines = [
+    var molongLab = molongTgt && molongTgt.label ? molongTgt.label : "你";
+    const enemyHitLines = enemy.molongRaid
+        ? [
+              `${enemy.name}龙威轰向<b>${molongLab}</b>，刻下 <b>${enDmgStr}</b>。`,
+              `${enemy.name}爪影掠向<b>${molongLab}</b>，气血骤减 <b>${enDmgStr}</b>。`,
+              `黑雾中龙瞳锁定<b>${molongLab}</b>，重创 <b>${enDmgStr}</b>。`,
+          ]
+        : [
         `${enemy.name}凶焰暴涨，妖气如墨泼面，直扑你心脉所在——你护体一滞，竟被撕开血口，刻下 <b>${enDmgStr}</b>。`,
         `${enemy.name}嘶吼着碾碎脚下尘土，罡风利爪横扫而至，你横臂硬接，臂骨嗡鸣，气血翻腾间折去 <b>${enDmgStr}</b>。`,
         `腥风扑面！${enemy.name}趁你旧力未生、新力未至的刹那暴起，一记狠手落在你肩头，震出 <b>${enDmgStr}</b>。`,
@@ -1361,25 +2392,43 @@ const enemyAttack = () => {
 
     // Damage effect
     let playerPanel = document.querySelector('#playerPanel');
-    playerPanel.classList.add("animation-shake");
-    setTimeout(() => {
-        playerPanel.classList.remove("animation-shake");
-    }, 200);
+    if (playerPanel) {
+        playerPanel.classList.add("animation-shake");
+        setTimeout(function () {
+            try {
+                if (playerPanel) playerPanel.classList.remove("animation-shake");
+            } catch (eSh) {}
+        }, 200);
+    }
 
-    // Attack Timer
-    if (player.inCombat) {
-        setTimeout(() => {
-            if (player.inCombat) {
-                enemyAttack();
+    } catch (eEnMain) {
+        try {
+            console.error("enemyAttack", eEnMain);
+        } catch (eL) {}
+        try {
+            if (typeof addCombatLog === "function") {
+                addCombatLog('<span class="Common">敌势气机一乱，下一击已续接。</span>');
             }
-        }, (1000 / enemy.stats.atkSpd) * COMBAT_PACE_SLOW_MULT);
+        } catch (eLog2) {}
+    }
+
+    beginPlayerAndPetChainsAfterResumeEnemyFirst();
+
+    if (player.inCombat && !enemyDead && !playerDead) {
+        var _ead = clampCombatDelayMs(getEnemyAttackIntervalMs(), 500);
+        touchEnemyAtkDueFromDelay(_ead);
+        __combatNextEnemyWallAt = Date.now() + _ead;
+        syncCombatWallTimersToPlayer();
+        setTimeout(function () {
+            if (player.inCombat) enemyAttack();
+        }, _ead);
     }
 }
 
 // ========== Combat Backlog ==========
 const combatBacklog = [];
 
-/** 单场斗法日志上限，避免高频出手时数组无限变长 */
+
 const COMBAT_LOG_MAX = 160;
 
 // Add a log to the combat backlog
@@ -1394,6 +2443,12 @@ const addCombatLog = (message) => {
 // Displays every combat activity
 const updateCombatLog = () => {
     let combatLogBox = document.getElementById("combatLogBox");
+    if (!combatLogBox) {
+        combatLogBox = document.querySelector("#combatPanel #combatLogBox");
+    }
+    if (!combatLogBox) {
+        combatLogBox = document.querySelector("#combatPanel .combat-log__inner");
+    }
     if (!combatLogBox) return;
     combatLogBox.innerHTML = "";
 
@@ -1406,37 +2461,129 @@ const updateCombatLog = () => {
     if (enemyDead) {
         let button = document.createElement("div");
         button.className = "decision-panel";
-        button.innerHTML = `<button id="battleButton">收纳战利</button>`;
+        var winBtnLabel =
+            enemy && enemy.wushenArena
+                ? "收起斗法"
+                : enemy && enemy.molongRaid
+                  ? "结算魔龙"
+                  : "收纳战利";
+        button.innerHTML = `<button id="battleButton">${winBtnLabel}</button>`;
         combatLogBox.appendChild(button);
     }
 
     if (playerDead) {
         let button = document.createElement("div");
         button.className = "decision-panel";
-        button.innerHTML = `<button id="battleButton">重整再战</button>`;
+        var loseBtnLabel =
+            enemy && enemy.wushenArena
+                ? "返回武神坛"
+                : enemy && enemy.molongRaid
+                  ? "返回副本大厅"
+                  : "重整再战";
+        button.innerHTML = `<button id="battleButton">${loseBtnLabel}</button>`;
         combatLogBox.appendChild(button);
     }
 
     combatLogBox.scrollTop = combatLogBox.scrollHeight;
 }
 
-// Combat Timer
-let combatSeconds = 0;
-let combatTimer = null;
-
 const startCombat = () => {
+    if (__combatResumeFailsafeTimer) {
+        clearTimeout(__combatResumeFailsafeTimer);
+        __combatResumeFailsafeTimer = null;
+    }
+    __combatClaimHandlerPending = null;
     player.inCombat = true;
 
-    // Starts the timer for player and enemy attacks along with combat timer
-    setTimeout(playerAttack, (100 / player.stats.atkSpd) * COMBAT_PACE_SLOW_MULT);
-    setTimeout(enemyAttack, (100 / enemy.stats.atkSpd) * COMBAT_PACE_SLOW_MULT);
-    var pcs0 = typeof getPetCombatStats === "function" ? getPetCombatStats() : null;
-    if (pcs0) {
-        setTimeout(function () {
-            if (player.inCombat) {
-                petAttack();
+    var now = Date.now();
+    var resume = readCombatResumeDelays();
+    var forceEnemyFirstReload = false;
+    try {
+        forceEnemyFirstReload = !!(typeof window !== "undefined" && window.__combatForceEnemyFirstAfterReload);
+        if (typeof window !== "undefined") window.__combatForceEnemyFirstAfterReload = false;
+    } catch (eFr) {}
+    /**
+     * 先出手：武神坛切磋仍按双方攻速同时排程；其余斗法（秘境/押镖/地脉等）一律先由妖兽出手一轮，
+     * 再切入修士/灵兽节奏（与读档续战相同）。避免「修士首击间隔更短」导致看起来像玩家先打。
+     */
+    var needEnemyBeforePlayer =
+        !!(resume || forceEnemyFirstReload) ||
+        (!(enemy && enemy.wushenArena) && !(enemy && enemy.molongRaid));
+    __combatResumeNeedEnemyHitBeforePlayer = needEnemyBeforePlayer;
+
+    var _p0;
+    var _e0;
+    if (needEnemyBeforePlayer) {
+        _e0 = 0;
+        __combatNextEnemyWallAt = now + _e0;
+        __combatNextPlayerWallAt = now + COMBAT_PLAYER_ATK_HOLD_MS;
+        syncCombatWallTimersToPlayer();
+
+        touchEnemyAtkDueFromDelay(_e0);
+        startEnemyAtkWatchdog();
+        setTimeout(enemyAttack, _e0);
+
+        touchPlayerAtkDueFromDelay(COMBAT_PLAYER_ATK_HOLD_MS);
+        startPlayerAtkWatchdog();
+        __combatResumeFailsafeTimer = setTimeout(function () {
+            __combatResumeFailsafeTimer = null;
+            if (
+                __combatResumeNeedEnemyHitBeforePlayer &&
+                player &&
+                player.inCombat &&
+                !enemyDead &&
+                !playerDead
+            ) {
+                try {
+                    if (typeof addCombatLog === "function") {
+                        addCombatLog('<span class="Common">气机久滞，灵台自续——你与灵兽可再度出手。</span>');
+                    }
+                } catch (eFs) {}
+                beginPlayerAndPetChainsAfterResumeEnemyFirst();
             }
-        }, (100 / pcs0.atkSpd) * COMBAT_PACE_SLOW_MULT);
+        }, 14000);
+    } else {
+        try {
+            delete player.combatTimerSync;
+        } catch (eDel) {}
+        _p0 = clampCombatDelayMs(getPlayerAttackIntervalMs(), 250);
+        var enFirst =
+            enemy && (enemy.wushenArena || enemy.molongRaid)
+                ? getEnemyAttackIntervalMs()
+                : (function () {
+                      if (!enemy || !enemy.stats) return 1000 * COMBAT_PACE_SLOW_MULT;
+                      var easp = Math.max(0.06, Math.min(3, enemy.stats.atkSpd || 0.06));
+                      return (1000 / easp) * COMBAT_PACE_SLOW_MULT;
+                  })();
+        _e0 = clampCombatDelayMs(enFirst, 500);
+
+        __combatNextPlayerWallAt = now + _p0;
+        __combatNextEnemyWallAt = now + _e0;
+        syncCombatWallTimersToPlayer();
+
+        touchEnemyAtkDueFromDelay(_e0);
+        startEnemyAtkWatchdog();
+        setTimeout(enemyAttack, _e0);
+        touchPlayerAtkDueFromDelay(_p0);
+        startPlayerAtkWatchdog();
+        setTimeout(playerAttack, _p0);
+        if (enemy && enemy.molongRaid && molongGuestCombatStats) {
+            var gAsp0 = Math.max(0.06, Math.min(2.5, molongGuestCombatStats.atkSpd || 0.06));
+            var gDel0 = clampCombatDelayMs((100 / gAsp0) * COMBAT_PACE_SLOW_MULT, 250);
+            setTimeout(function () {
+                if (player.inCombat) molongGuestAttack();
+            }, gDel0);
+        }
+        var pcs0n = typeof getPetCombatStats === "function" ? getPetCombatStats() : null;
+        if (pcs0n && !(enemy && enemy.wushenArena) && !(enemy && enemy.molongRaid)) {
+            var paspn = Math.max(0.06, Math.min(2.5, pcs0n.atkSpd || 0.06));
+            var petDelayn = clampCombatDelayMs((100 / paspn) * COMBAT_PACE_SLOW_MULT, 300);
+            setTimeout(function () {
+                if (player.inCombat) {
+                    petAttack();
+                }
+            }, petDelayn);
+        }
     }
     let dimDungeon = document.querySelector('#dungeon-main');
     dimDungeon.style.filter = "brightness(50%)";
@@ -1452,18 +2599,36 @@ const startCombat = () => {
     }
     combatPanel.style.display = "flex";
 
-    combatTimer = setInterval(combatCounter, 100);
+    combatTimer = setInterval(combatCounter, COMBAT_TICK_MS);
 }
 
 const endCombat = () => {
+    clearMolongRaidBossDodgeState();
+    try {
+        molongEndSeededRngCombat();
+    } catch (eMr) {}
+    if (__combatResumeFailsafeTimer) {
+        clearTimeout(__combatResumeFailsafeTimer);
+        __combatResumeFailsafeTimer = null;
+    }
     player.inCombat = false;
+    molongGuestCombatStats = null;
+    clearCombatTimerSyncOnly();
+    clearPlayerAtkWatchdog();
+    clearEnemyAtkWatchdog();
     objectValidation();
     if (player.tempStats) {
         player.tempStats.atk = 0;
         player.tempStats.atkSpd = 0;
     }
     if (typeof calculateStats === "function") calculateStats();
-    saveData();
+    try {
+        saveData();
+    } catch (eSave) {
+        try {
+            console.error("endCombat saveData", eSave);
+        } catch (e2) {}
+    }
 
     // Stops every timer in combat
     if (combatTimer) {
@@ -1477,7 +2642,7 @@ const combatCounter = () => {
     combatSeconds++;
 }
 
-/** 斗法敌阵头像：品质档 + BOSS（层主 / 秘境主宰）霸气样式 */
+
 function getEnemyCombatQualityUi() {
     var qt = enemy && typeof enemy.qualityTier === "number" ? Math.max(0, Math.min(9, enemy.qualityTier)) : 0;
     var ql = "";
@@ -1529,6 +2694,97 @@ function getEnemyCombatQualityUi() {
 const showCombatInfo = () => {
     var eqUi = getEnemyCombatQualityUi();
     var mLabel = getEnemyMechanicLabel();
+    if (enemy && enemy.molongRaid) {
+        var mr = enemy.molongRaid;
+        var dname = (mr.dungeonName && String(mr.dungeonName)) || "魔龙洞";
+        var soloRaid = !!mr.solo;
+        document.querySelector("#combatPanel").innerHTML = `
+    <div class="content modal-sheet modal-sheet--combat combat-sheet combat-sheet--molong">
+        <header class="combat-sheet__head">
+            <div class="combat-sheet__head-inner">
+                <span class="combat-sheet__badge">斗法</span>
+                <span class="combat-sheet__sub">${dname} · ${soloRaid ? "单人挑战" : "双人快照"}</span>
+            </div>
+        </header>
+        <div class="combat-sheet__body">
+            <section class="combat-card combat-card--enemy${eqUi.bossCardClass}" id="enemyPanel">
+                <div class="combat-card__row">
+                    <div class="combat-avatar combat-avatar--enemy combat-avatar--qt combat-avatar--qt-${eqUi.qt}${eqUi.bossAvatarClass}">
+                        <i class="fas ${eqUi.iconClass}" aria-hidden="true"></i>
+                    </div>
+                    <div class="combat-card__main">
+                        <h4 class="combat-card__title">${eqUi.bossTitlePrefix}${enemy.name}</h4>
+                        <p class="combat-card__subtitle">${cultivationRealmLabel(enemy.lvl)}</p>
+                    </div>
+                </div>
+                <div class="combat-bar combat-bar--hp">
+                        <div class="combat-bar__track combat-bar__track--enemy">
+                        <div class="combat-bar__dmg" id="enemy-hp-dmg"></div>
+                        <div class="combat-bar__fill combat-bar__fill--enemy" id="enemy-hp-battle"></div>
+                    </div>
+                </div>
+                <div id="dmg-container" class="dmg-container combat-card__dmg"></div>
+            </section>
+            <div class="combat-sheet__player-row combat-sheet__player-row--molong">
+            <section class="combat-card combat-card--player" id="playerPanel">
+                <div class="combat-card__row combat-card__row--player-head">
+                    <div class="combat-avatar combat-avatar--player" aria-hidden="true"><i class="fas fa-user"></i></div>
+                    <div class="combat-card__main combat-card__main--player">
+                        <p id="player-combat-info" class="combat-card__playerline"></p>
+                        <div class="combat-card__titlebar combat-card__titlebar--player" aria-label="称号展示">
+                            <div class="combat-title-fx" id="molong-host-title-fx"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="combat-bar combat-bar--hp">
+                    <div class="combat-bar__track combat-bar__track--player">
+                        <div class="combat-bar__dmg" id="player-hp-dmg"></div>
+                        <div class="combat-bar__fill combat-bar__fill--player" id="player-hp-battle"></div>
+                    </div>
+                </div>
+                <div class="combat-exp-block">
+                    <div class="combat-exp-block__head">
+                        <span class="combat-exp-block__lbl"><i class="fas fa-yin-yang" aria-hidden="true"></i> 修为</span>
+                        <span class="combat-exp-block__nums" id="player-exp-combat-text"></span>
+                    </div>
+                    <div class="combat-exp-block__track">
+                        <div class="combat-exp-block__fill" id="player-exp-bar"></div>
+                    </div>
+                </div>
+            </section>
+            <section class="combat-card combat-card--player combat-card--molong-ally" id="molongAllyPanel" style="${soloRaid ? "display:none" : ""}">
+                <div class="combat-card__row combat-card__row--player-head">
+                    <div class="combat-avatar combat-avatar--player" aria-hidden="true"><i class="fas fa-user-friends"></i></div>
+                    <div class="combat-card__main combat-card__main--player">
+                        <p id="molong-ally-combat-info" class="combat-card__playerline"></p>
+                        <div class="combat-card__titlebar combat-card__titlebar--player" aria-label="称号展示">
+                            <div class="combat-title-fx" id="molong-guest-title-fx"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="combat-bar combat-bar--hp">
+                    <div class="combat-bar__track combat-bar__track--player">
+                        <div class="combat-bar__dmg" id="molong-ally-hp-dmg"></div>
+                        <div class="combat-bar__fill combat-bar__fill--player" id="molong-ally-hp-battle"></div>
+                    </div>
+                </div>
+            </section>
+            </div>
+            <section class="combat-card combat-card--molong-dmglog">
+                <div class="combat-log__head">伤害记录</div>
+                <p class="molong-dmg-line">房主累计：<span id="molong-dmg-host">0</span></p>
+                <p class="molong-dmg-line" style="${soloRaid ? "display:none" : ""}">队员累计：<span id="molong-dmg-guest">0</span></p>
+            </section>
+            <section class="combat-card combat-card--log">
+                <div class="combat-log__head">战况</div>
+                <div id="combatLogBox" class="combat-log__inner"></div>
+            </section>
+        </div>
+    </div>`;
+        if (typeof window.refreshMolongCombatHud === "function") window.refreshMolongCombatHud();
+        if (typeof window.refreshMolongPlayerCombatLines === "function") window.refreshMolongPlayerCombatLines();
+        return;
+    }
     document.querySelector('#combatPanel').innerHTML = `
     <div class="content modal-sheet modal-sheet--combat combat-sheet">
         <header class="combat-sheet__head">
@@ -1561,10 +2817,13 @@ const showCombatInfo = () => {
             </section>
             <div class="combat-sheet__player-row">
             <section class="combat-card combat-card--player" id="playerPanel">
-                <div class="combat-card__row">
+                <div class="combat-card__row combat-card__row--player-head">
                     <div class="combat-avatar combat-avatar--player" aria-hidden="true"><i class="fas fa-user"></i></div>
-                    <div class="combat-card__main">
+                    <div class="combat-card__main combat-card__main--player">
                         <p id="player-combat-info" class="combat-card__playerline"></p>
+                        <div class="combat-card__titlebar combat-card__titlebar--player" aria-label="称号展示">
+                            <div class="combat-title-fx" id="player-combat-title-fx"></div>
+                        </div>
                     </div>
                 </div>
                 <div class="combat-bar combat-bar--hp">
@@ -1583,7 +2842,7 @@ const showCombatInfo = () => {
                     </div>
                 </div>
             </section>
-            ${typeof getPetCombatSidebarHtml === "function" ? getPetCombatSidebarHtml() : ""}
+            ${typeof getPetCombatSidebarHtml === "function" && !(enemy && enemy.wushenArena) && !(enemy && enemy.molongRaid) ? getPetCombatSidebarHtml() : ""}
             </div>
             <section class="combat-card combat-card--log">
                 <div class="combat-log__head">战况</div>
@@ -1593,3 +2852,166 @@ const showCombatInfo = () => {
     </div>
     `;
 }
+
+window.refreshMolongCombatHud = function () {
+    try {
+        if (!enemy || !enemy.molongRaid) return;
+        var dh = document.getElementById("molong-dmg-host");
+        var dg = document.getElementById("molong-dmg-guest");
+        if (dh) dh.textContent = nFormatter(enemy.molongRaid.damageHost || 0);
+        if (dg) dg.textContent = nFormatter(enemy.molongRaid.damageGuest || 0);
+        if (!molongGuestCombatStats) return;
+        var allyHp = document.getElementById("molong-ally-hp-battle");
+        var allyDmg = document.getElementById("molong-ally-hp-dmg");
+        var hpMax = molongGuestCombatStats.hpMax || 1;
+        var hp = molongGuestCombatStats.hp || 0;
+        var pct = Number(Math.max(0, Math.min(100, (100 * hp) / hpMax)).toFixed(2));
+        if (allyHp) {
+            allyHp.innerHTML =
+                nFormatter(hp) +
+                "/" +
+                nFormatter(hpMax) +
+                ' <span class="combat-bar__pct">' +
+                pct +
+                "%</span>";
+            allyHp.style.width = pct + "%";
+        }
+        if (allyDmg) allyDmg.style.width = pct + "%";
+    } catch (eRf) {}
+};
+
+function molongEscapeCombatLine(s) {
+    return String(s == null ? "" : s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+}
+
+/** 第一行「境界」段：与普通斗法第二段 prealm 一致 */
+function molongRealmLineOnly(realmSnapshot, useLivePlayer) {
+    if (useLivePlayer && typeof cultivationRealmLabel === "function" && typeof player !== "undefined" && player) {
+        return cultivationRealmLabel(player.lvl);
+    }
+    var r = realmSnapshot && String(realmSnapshot).trim() ? String(realmSnapshot).trim() : "";
+    return r || "—";
+}
+
+function molongNameRealmLineHtml(name, realmSnapshot, useLivePlayer) {
+    var realm = molongRealmLineOnly(realmSnapshot, useLivePlayer);
+    return (
+        '<span class="combat-card__pname">' +
+        molongEscapeCombatLine(name) +
+        '</span><span class="combat-card__prealm">' +
+        molongEscapeCombatLine(realm) +
+        "</span>"
+    );
+}
+
+window.refreshMolongPlayerCombatLines = function () {
+    try {
+        if (typeof enemy === "undefined" || !enemy || !enemy.molongRaid) return;
+        var mr = enemy.molongRaid;
+        var ig = !!mr.isRoomGuest;
+        var pe = document.getElementById("player-combat-info");
+        var ae = document.getElementById("molong-ally-combat-info");
+        var leftName = ig
+            ? mr.hostName || "房主"
+            : typeof player !== "undefined" && player && player.name
+              ? player.name
+              : "—";
+        if (pe) {
+            pe.innerHTML = molongNameRealmLineHtml(leftName, mr.hostRealmLabel, !ig);
+        }
+
+        var slot = typeof window.refreshMolongTitleFxSlot === "function" ? window.refreshMolongTitleFxSlot : null;
+        var hFx = document.getElementById("molong-host-title-fx");
+        if (slot && hFx) {
+            if (!ig) slot(hFx, { mode: "live" });
+            else slot(hFx, { mode: "snapshot", title: mr.hostTitleName });
+        }
+
+        if (ae && !mr.solo) {
+            var rightName = ig
+                ? typeof player !== "undefined" && player && player.name
+                    ? player.name
+                    : "—"
+                : mr.guestName || "队员";
+            ae.innerHTML = molongNameRealmLineHtml(rightName, mr.guestRealmLabel, ig);
+            var gFx = document.getElementById("molong-guest-title-fx");
+            if (slot && gFx) {
+                if (ig) slot(gFx, { mode: "live" });
+                else slot(gFx, { mode: "snapshot", title: mr.guestTitleName });
+            }
+        }
+    } catch (eMl) {}
+};
+
+window._beginMolongRaidBattleImpl = function (res) {
+    if (typeof window.hideMolongHallModal === "function") window.hideMolongHallModal();
+    if (!res || !res.token || !res.hostSnapshot) {
+        return;
+    }
+    var rngSeed =
+        res.battleRngSeed !== undefined && res.battleRngSeed !== null && String(res.battleRngSeed) !== ""
+            ? Number(res.battleRngSeed)
+            : molongTokenToSeed(res.token);
+    initMolongRaidBossDodgeFromBattleRes(res, rngSeed);
+    molongBeginSeededRngCombat(rngSeed);
+
+    var soloRaid = !!(res.solo === true || !res.guestSnapshot);
+    if (!soloRaid && !res.guestSnapshot) {
+        molongEndSeededRngCombat();
+        clearMolongRaidBossDodgeState();
+        return;
+    }
+    /** 与房主相同：左栏房主快照、右栏队员快照；仅用于结算是否调用服务端 */
+    var isRoomGuest = !!res.iAmGuest;
+    var hs = res.hostSnapshot;
+    var gs = res.guestSnapshot;
+
+    molongGuestCombatStats = null;
+    if (!soloRaid && gs) {
+        molongApplySnapshotToPlayer(hs);
+        molongGuestCombatStats = molongCloneCombatStatsFromSnapshot(gs);
+    } else {
+        molongApplySnapshotToPlayer(hs);
+    }
+
+    if (typeof window.buildMolongEnemyForStage !== "function") {
+        molongEndSeededRngCombat();
+        clearMolongRaidBossDodgeState();
+        return;
+    }
+    var did = res.dungeonId != null ? String(res.dungeonId) : "molong_dragon";
+    window.buildMolongEnemyForStage(res.stage, did);
+    enemy.molongRaid = {
+        token: res.token,
+        stage: res.stage,
+        solo: soloRaid,
+        isRoomGuest: isRoomGuest,
+        dungeonId: did,
+        dungeonName: res.dungeonName != null ? String(res.dungeonName) : "魔龙洞",
+        orderFront: res.orderFront === "guest" ? "guest" : "host",
+        damageHost: 0,
+        damageGuest: 0,
+        guestName: gs && gs.playerName ? gs.playerName : "队员",
+        hostName: hs.playerName || player.name,
+        hostTitleName: hs.displayTitleName != null ? String(hs.displayTitleName) : "",
+        guestTitleName: gs && gs.displayTitleName != null ? String(gs.displayTitleName) : "",
+        hostRealmLabel: hs.realmLabel != null ? String(hs.realmLabel) : "",
+        guestRealmLabel: gs && gs.realmLabel != null ? String(gs.realmLabel) : "",
+        hostCombatPassives: hs.combatPassives && typeof hs.combatPassives === "object" ? hs.combatPassives : {},
+        guestCombatPassives: gs && gs.combatPassives && typeof gs.combatPassives === "object" ? gs.combatPassives : {},
+    };
+    if (typeof dungeon !== "undefined" && dungeon) {
+        if (!dungeon.status || typeof dungeon.status !== "object") {
+            dungeon.status = { exploring: false, paused: true, event: false };
+        }
+        dungeon.status.event = true;
+    }
+    player.inCombat = true;
+    if (typeof showCombatInfo === "function") showCombatInfo();
+    if (typeof startCombat === "function") startCombat();
+    if (typeof saveData === "function") saveData();
+};

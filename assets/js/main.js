@@ -1,5 +1,15 @@
+// 从父页面注入的全局变量中读取散修名字（可选）；嵌入主游戏时可由 URL parentName 传入
 function getParentPlayerName() {
     try {
+        var m = /[?&]parentName=([^&]*)/.exec(location.search || "");
+        if (m && m[1] !== undefined && m[1] !== "") {
+            var dec = decodeURIComponent(String(m[1]).replace(/\+/g, " "));
+            var name = dec.trim().replace(/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]+/g, "");
+            if (name) {
+                if (name.length > 15) name = name.slice(0, 15);
+                return name;
+            }
+        }
         var raw = window.__parentPlayerName;
         if (!raw || typeof raw !== "string") return null;
         var name = raw.trim().replace(/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]+/g, "");
@@ -10,51 +20,6 @@ function getParentPlayerName() {
         return null;
     }
 }
-
-function resizeImageToAvatarDataUrl(file, callback) {
-    var maxSide = 128;
-    var img = new Image();
-    var objUrl = URL.createObjectURL(file);
-    img.onload = function () {
-        try {
-            URL.revokeObjectURL(objUrl);
-            var w = img.width;
-            var h = img.height;
-            var scale = Math.min(1, maxSide / Math.max(w, h));
-            var nw = Math.max(1, Math.round(w * scale));
-            var nh = Math.max(1, Math.round(h * scale));
-            var c = document.createElement("canvas");
-            c.width = nw;
-            c.height = nh;
-            var ctx = c.getContext("2d");
-            ctx.drawImage(img, 0, 0, nw, nh);
-            var dataUrl = c.toDataURL("image/jpeg", 0.82);
-            if (dataUrl.length > 520000) {
-                dataUrl = c.toDataURL("image/jpeg", 0.65);
-            }
-            if (dataUrl.length > 520000) {
-                callback(new Error("图片仍过大，请换一张较小的图。"));
-                return;
-            }
-            callback(null, dataUrl);
-        } catch (e) {
-            callback(e);
-        }
-    };
-    img.onerror = function () {
-        try {
-            URL.revokeObjectURL(objUrl);
-        } catch (e2) {}
-        callback(new Error("无法读取图片。"));
-    };
-    img.src = objUrl;
-}
-
-const GAME_CHANGELOG_HTML = `
-<p class="update-log__date">2026-04-03（QQ群902481027）</p>
-<p class="update-log__item">· 此游戏是金币冒险者分支游戏，如果觉得有意思，后续会加入到金币冒险者在开启联网模式（所有装备材料都可以玩家交易）。</p>
-<p class="update-log__item">· 设置 / 存档中可修改道号与自定义头像（本地压缩保存）游戏有很多事件每个事件都影响后续怪物强度，可以有厉害的BOSS，挖矿和跑商（凝结后开启）。</p>
-`;
 
 function createNewPlayer(displayName) {
     player = {
@@ -87,6 +52,11 @@ function createNewPlayer(displayName) {
             def: 0,
             pen: 0,
             atkSpd: 0,
+            gemPctHp: 0,
+            gemPctAtk: 0,
+            gemPctDef: 0,
+            gemAtkSpdPct: 0,
+            gemCritDmgPts: 0,
             vamp: 0,
             critRate: 0,
             critDmg: 0,
@@ -114,17 +84,27 @@ function createNewPlayer(displayName) {
         inventory: {
             consumables: [],
             equipment: [],
-            materials: { enhance_stone: 0, gem_material_pack: 0, socket_opener: 0, talent_fruit: 0 },
+            materials: {
+                enhance_stone: 0,
+                enchant_stone: 0,
+                god_essence_stone: 0,
+                gem_material_pack: 0,
+                socket_opener: 0,
+                talent_fruit: 0,
+                life_potion: 0,
+            },
             gems: { hp: {}, atk: {}, def: {}, atkSpd: {}, critDmg: {} },
             bagTab: "equip",
             uiFilter: { rarity: "All", slotType: "All" },
-            autoBatchSell: false
+            autoBatchSell: false,
+            autoBatchSellRarity: "Common"
         },
         equipped: [],
         gold: 0,
         playtime: 0,
         kills: 0,
         deaths: 0,
+        // 历史最高秘境层数记录（用于“修士名录”展示）
         maxDungeonFloor: 1,
         maxDungeonFloorLvl: 1,
         maxDungeonFloorSect: null,
@@ -136,7 +116,8 @@ function createNewPlayer(displayName) {
         petCollection: [],
         activePetId: null,
         miningDaily: { tickets: 5, lastTs: Date.now() },
-        avatar: ""
+        equippedTitleId: null,
+        combatTitleFxHidden: false
     };
     if (typeof ensurePlayerPetCollection === "function") ensurePlayerPetCollection();
     calculateStats();
@@ -144,7 +125,790 @@ function createNewPlayer(displayName) {
     saveData();
 }
 
-window.addEventListener("load", function () {
+var __dongtianSaveTimer = null;
+/** 嵌入模式但云存档不可用：与单机相同使用本机 localStorage，不上传服务端 */
+window.__dongtianCloudLocalFallback = false;
+/** 正在从服务端拉取洞天存档（如修仙市场购后同步）时禁止上传，避免旧内存覆盖服务端刚写入的背包 */
+window.__dongtianCloudReloading = false;
+function cancelPendingDongtianCloudSave() {
+    if (__dongtianSaveTimer) {
+        clearTimeout(__dongtianSaveTimer);
+        __dongtianSaveTimer = null;
+    }
+}
+window.cancelPendingDongtianCloudSave = cancelPendingDongtianCloudSave;
+/** 与 dongtian_*.json 的 updatedAt 对齐；用于防止旧内存 POST 盖掉市场发货后的服务端存档 */
+window.__dongtianServerUpdatedAt = 0;
+function dongtianCloudFlushSave() {
+    try {
+        if (window.__dongtianCloudReloading) return;
+        if (window.__dongtianCloudLocalFallback) {
+            if (typeof saveData === "function") saveData();
+            return;
+        }
+        var req = window.parent && window.parent.goldGameApiRequest;
+        if (!req || typeof player !== "object" || !player) return;
+        var base =
+            typeof window.__dongtianServerUpdatedAt === "number" && window.__dongtianServerUpdatedAt > 0
+                ? window.__dongtianServerUpdatedAt
+                : undefined;
+        if (typeof window.syncCombatWallTimersToPlayer === "function") window.syncCombatWallTimersToPlayer();
+        var postBody = { player: player, dungeon: dungeon, enemy: enemy };
+        if (base !== undefined) postBody.baseUpdatedAt = base;
+        req("POST", "/api/dongtian-jie/save", postBody, true)
+            .then(function (res) {
+                if (res && res.ok && typeof res.updatedAt === "number") {
+                    window.__dongtianServerUpdatedAt = res.updatedAt;
+                    return;
+                }
+                if (res && res.conflict && typeof window.dongtianReloadFromServerAfterConflict === "function") {
+                    return window.dongtianReloadFromServerAfterConflict();
+                }
+            })
+            .catch(function () {});
+    } catch (e) {}
+}
+function scheduleDongtianCloudSave() {
+    if (__dongtianSaveTimer) clearTimeout(__dongtianSaveTimer);
+    __dongtianSaveTimer = setTimeout(function () {
+        __dongtianSaveTimer = null;
+        dongtianCloudFlushSave();
+    }, 650);
+}
+window.__dongtianCloudFlushSave = dongtianCloudFlushSave;
+
+/** 洞天劫联网：向服务端广播当前层数/劫数，供「路遇道友」奇遇匹配（约 22 秒最多一次） */
+var DONGTIAN_PRESENCE_PING_MIN_MS = 22000;
+window.__dongtianLastPresencePing = 0;
+function dongtianPresencePayload() {
+    var fl = dungeon.progress && typeof dungeon.progress.floor === "number" ? dungeon.progress.floor : 1;
+    var rm = dungeon.progress && typeof dungeon.progress.room === "number" ? dungeon.progress.room : 1;
+    var name = player.name != null ? String(player.name) : "";
+    var grade = dungeon.grade != null ? String(dungeon.grade) : "";
+    var kills =
+        dungeon.statistics && typeof dungeon.statistics.kills === "number" && !isNaN(dungeon.statistics.kills)
+            ? dungeon.statistics.kills
+            : 0;
+    return { floor: fl, room: rm, displayName: name, grade: grade, kills: kills };
+}
+function dongtianPresencePingIfNeeded() {
+    try {
+        if (!window.DONGTIAN_CLOUD_MODE || !window.__dongtianCloudHydrated || window.__dongtianCloudLocalFallback) return;
+        var req = window.parent && window.parent.goldGameApiRequest;
+        if (!req || typeof dungeon === "undefined" || !dungeon || typeof player === "undefined" || !player) return;
+        if (!dungeon.status || !dungeon.status.exploring || dungeon.status.paused || dungeon.status.event) return;
+        var now = Date.now();
+        if (window.__dongtianLastPresencePing && now - window.__dongtianLastPresencePing < DONGTIAN_PRESENCE_PING_MIN_MS)
+            return;
+        window.__dongtianLastPresencePing = now;
+        req("POST", "/api/dongtian-jie/presence", dongtianPresencePayload(), true).catch(function () {});
+    } catch (ePing) {}
+}
+/** 进入「遇道友」奇遇前立即上报，便于他人列表里尽快出现你 */
+function dongtianPresencePingForce() {
+    try {
+        if (!window.DONGTIAN_CLOUD_MODE || !window.__dongtianCloudHydrated || window.__dongtianCloudLocalFallback)
+            return Promise.resolve();
+        var req = window.parent && window.parent.goldGameApiRequest;
+        if (!req || typeof dungeon === "undefined" || !dungeon || typeof player === "undefined" || !player) {
+            return Promise.resolve();
+        }
+        window.__dongtianLastPresencePing = Date.now();
+        return req("POST", "/api/dongtian-jie/presence", dongtianPresencePayload(), true).catch(function () {
+            return { ok: false };
+        });
+    } catch (eF) {
+        return Promise.resolve();
+    }
+}
+window.dongtianPresencePingIfNeeded = dongtianPresencePingIfNeeded;
+window.dongtianPresencePingForce = dongtianPresencePingForce;
+
+/** 洞天劫系统消息收件箱（遇人通知等），轮询写入秘境日志 */
+window.__dongtianInboxLastTs = 0;
+window.__dongtianInboxTimer = null;
+function escapeDongtianInboxHtml(s) {
+    return String(s || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+}
+function dongtianInboxPollOnce() {
+    try {
+        if (!window.DONGTIAN_CLOUD_MODE || !window.__dongtianCloudHydrated || window.__dongtianCloudLocalFallback) return;
+        var req = window.parent && window.parent.goldGameApiRequest;
+        if (!req || typeof addDungeonLog !== "function") return;
+        var since =
+            typeof window.__dongtianInboxLastTs === "number" && window.__dongtianInboxLastTs > 0
+                ? window.__dongtianInboxLastTs
+                : 0;
+        req("GET", "/api/dongtian-jie/inbox?since=" + encodeURIComponent(since), undefined, true)
+            .then(function (res) {
+                if (!res || !res.ok || !Array.isArray(res.messages) || res.messages.length === 0) return;
+                var maxTs = since;
+                for (var i = 0; i < res.messages.length; i++) {
+                    var m = res.messages[i];
+                    if (!m || typeof m.text !== "string" || !m.text) continue;
+                    if (typeof m.ts === "number" && m.ts > maxTs) maxTs = m.ts;
+                    addDungeonLog('<span class="Heirloom">' + escapeDongtianInboxHtml(m.text) + "</span>");
+                }
+                if (maxTs > since) window.__dongtianInboxLastTs = maxTs;
+                if (typeof updateDungeonLog === "function") updateDungeonLog();
+            })
+            .catch(function () {});
+    } catch (eInbox) {}
+}
+function startDongtianInboxPoll() {
+    if (!window.DONGTIAN_CLOUD_MODE || window.__dongtianCloudLocalFallback) return;
+    if (window.__dongtianInboxTimer) clearInterval(window.__dongtianInboxTimer);
+    dongtianInboxPollOnce();
+    window.__dongtianInboxTimer = setInterval(dongtianInboxPollOnce, 20000);
+}
+window.startDongtianInboxPoll = startDongtianInboxPoll;
+
+/** 服务端洞天存档比本地新时（如保存被拒），拉最新档并刷新材料/灵宠栏 */
+window.dongtianReloadFromServerAfterConflict = function () {
+    var req = window.parent && window.parent.goldGameApiRequest;
+    if (!req) return Promise.resolve();
+    if (typeof window.cancelPendingDongtianCloudSave === "function") window.cancelPendingDongtianCloudSave();
+    window.__dongtianCloudReloading = true;
+    return req("GET", "/api/dongtian-jie/save", undefined, true)
+        .then(function (res) {
+            if (res && res.ok && res.data && typeof window.dongtianApplyServerPayload === "function") {
+                window.dongtianApplyServerPayload(res.data);
+            }
+        })
+        .finally(function () {
+            window.__dongtianCloudReloading = false;
+        });
+};
+/** 服务端已改洞天存档后，用此函数覆盖内存中的 player/dungeon/enemy 并刷新 UI */
+window.dongtianApplyServerPayload = function (data) {
+    if (!data || !data.player) return;
+    player = data.player;
+    if (typeof mergeDungeonDefaults === "function") {
+        dungeon = mergeDungeonDefaults(data.dungeon != null && typeof data.dungeon === "object" ? data.dungeon : null);
+    }
+    if (typeof window.dongtianSyncEscortMiningGlobalsFromDungeon === "function") {
+        window.dongtianSyncEscortMiningGlobalsFromDungeon();
+    }
+    if (data.enemy && typeof data.enemy === "object") {
+        enemy = data.enemy;
+    }
+    if (typeof data.updatedAt === "number" && isFinite(data.updatedAt)) {
+        window.__dongtianServerUpdatedAt = data.updatedAt;
+    }
+    if (typeof playerLoadStats === "function") playerLoadStats();
+    if (typeof dongtianDungeonPlayerExpApplyLevelUpsAndClamp === "function") {
+        dongtianDungeonPlayerExpApplyLevelUpsAndClamp();
+    }
+    if (typeof showEquipment === "function") showEquipment();
+    if (typeof renderInventoryMaterialsPanel === "function") renderInventoryMaterialsPanel();
+    if (typeof renderPetPanel === "function") renderPetPanel();
+    if (window.DONGTIAN_CLOUD_MODE && typeof window.initDongtianCloudMarketAndArenaUi === "function") {
+        setTimeout(function () {
+            window.initDongtianCloudMarketAndArenaUi();
+        }, 0);
+    }
+};
+if (typeof window !== "undefined" && window.DONGTIAN_CLOUD_MODE) {
+    document.addEventListener("visibilitychange", function () {
+        if (document.hidden) dongtianCloudFlushSave();
+    });
+    /** iframe/标签被直接卸掉时未必触发 visibilitychange；战败后关页再冲一次，避免仍停留在战前存档 */
+    window.addEventListener("pagehide", function () {
+        try {
+            if (typeof player !== "object" || !player || !player.stats) return;
+            if (player.stats.hp >= 1) return;
+            if (typeof window.cancelPendingDongtianCloudSave === "function") window.cancelPendingDongtianCloudSave();
+            dongtianCloudFlushSave();
+        } catch (ePh) {}
+    });
+}
+
+/** 嵌入模式但无法使用云存档时：与本机 index.html 相同，从 localStorage 读档并继续运行（仅坊市/武神坛/副本大厅需联网）。 */
+function dongtianCloudBootFromLocalFallback(reasonLine) {
+    window.__dongtianCloudLocalFallback = true;
+    try {
+        var pd = localStorage.getItem("playerData");
+        if (pd) {
+            player = JSON.parse(pd);
+        }
+    } catch (eP) {}
+    try {
+        var ed = localStorage.getItem("enemyData");
+        if (ed) {
+            enemy = JSON.parse(ed);
+        }
+    } catch (eE) {}
+    window.__dongtianCloudHydrated = true;
+    dilaoGameBoot();
+    if (reasonLine && typeof reasonLine === "string") {
+        setTimeout(function () {
+            try {
+                var el = document.getElementById("xiuMarketToast");
+                if (el) {
+                    el.textContent = reasonLine;
+                    el.style.display = "block";
+                    el.classList.add("xiu-market-toast--err");
+                    clearTimeout(el._dongtianOfflineT);
+                    el._dongtianOfflineT = setTimeout(function () {
+                        el.style.display = "none";
+                    }, 5200);
+                }
+            } catch (eT) {}
+        }, 600);
+    }
+}
+
+function dongtianCloudLoadAndBoot() {
+    var req = null;
+    try {
+        req = window.parent && window.parent.goldGameApiRequest;
+    } catch (e) {
+        req = null;
+    }
+    if (!req) {
+        dongtianCloudBootFromLocalFallback(
+            "已使用本机浏览器存档。联网版本请加群902481027。"
+        );
+        return;
+    }
+    req("GET", "/api/dongtian-jie/save", undefined, true)
+        .then(function (res) {
+            if (!res || !res.ok) {
+                dongtianCloudBootFromLocalFallback(
+                    (res && res.message ? res.message : "云存档不可用") + "，已改用本机存档。联网请加群902481027。"
+                );
+                return;
+            }
+            if (!res.data || !res.data.player || typeof res.data.player !== "object") {
+                dongtianCloudBootFromLocalFallback(
+                    "云存档结构异常，已改用本机存档。联网版本请加群902481027。"
+                );
+                return;
+            }
+            if (res.data && res.data.player && typeof res.data.player === "object") {
+                player = res.data.player;
+                if (typeof mergeDungeonDefaults === "function") {
+                    dungeon = mergeDungeonDefaults(
+                        res.data.dungeon != null && typeof res.data.dungeon === "object" ? res.data.dungeon : null
+                    );
+                }
+                if (typeof window.dongtianSyncEscortMiningGlobalsFromDungeon === "function") {
+                    window.dongtianSyncEscortMiningGlobalsFromDungeon();
+                }
+                if (res.data.enemy && typeof res.data.enemy === "object") {
+                    enemy = res.data.enemy;
+                }
+            }
+            if (res.data && typeof res.data.updatedAt === "number" && isFinite(res.data.updatedAt)) {
+                window.__dongtianServerUpdatedAt = res.data.updatedAt;
+            }
+            window.__dongtianCloudHydrated = true;
+            dilaoGameBoot();
+        })
+        .catch(function (err) {
+            var m = err && err.message ? err.message : "网络错误";
+            dongtianCloudBootFromLocalFallback("云存档拉取失败（" + m + "），联网版本请加群902481027。");
+        });
+}
+
+/** 联网模式下初始化修仙市场 + 武神坛（需在 xiu-market.js / wushen-arena.js 加载之后调用；可多次调用以补绑） */
+window.initDongtianCloudMarketAndArenaUi = function () {
+    if (!window.DONGTIAN_CLOUD_MODE) return;
+    try {
+        if (typeof window.initXiuMarketUI === "function") window.initXiuMarketUI();
+        if (typeof window.initWuShenArenaUI === "function") window.initWuShenArenaUI();
+        if (typeof window.initDongtianMolongUI === "function") window.initDongtianMolongUI();
+    } catch (e) {}
+};
+
+
+var DONGTIAN_JIE_CHANGELOG_HTML =
+    '<div class="changelog-ver">' +
+    '<h4 class="changelog-h4">洞天劫 2.0</h4>' +
+    "<ul class=\"changelog-list\">" +
+    "<li>更新大量事件和机制，现在版本难度不会和1.0一样难。</li>" +
+    "<li></li>" +
+    "<li>单机或断网可玩核心内容；仅修仙市场、武神坛、副本大厅需联网请加群902481027。</li>" +
+    "</ul></div>" +
+    '<div class="changelog-ver changelog-ver--older">' +
+    '<h4 class="changelog-h4">1.0 </h4>' +
+    "<ul class=\"changelog-list\">" +
+    "<li></li>" +
+    "<li>单机进度存浏览器</li>" +
+    "</ul></div>";
+
+/** 浏览器是否具备 Web Crypto（加密导出需要安全上下文，直接打开 file:// 通常不可用）。 */
+function dongtianSaveEncryptionAvailable() {
+    try {
+        return (
+            typeof window.crypto !== "undefined" &&
+            crypto.subtle &&
+            typeof crypto.getRandomValues === "function" &&
+            typeof TextEncoder !== "undefined"
+        );
+    } catch (eAvail) {
+        return false;
+    }
+}
+
+function dongtianB64FromBytes(u8) {
+    var bin = "";
+    for (var i = 0; i < u8.length; i++) {
+        bin += String.fromCharCode(u8[i]);
+    }
+    return btoa(bin);
+}
+
+function dongtianBytesFromB64(s) {
+    var bin = atob(String(s || ""));
+    var out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) {
+        out[i] = bin.charCodeAt(i);
+    }
+    return out;
+}
+
+function dongtianIsEncryptedSaveEnvelope(data) {
+    return (
+        data &&
+        data.encrypted === true &&
+        data.scheme === "pbkdf2-sha256-aes256-gcm-v1" &&
+        typeof data.saltB64 === "string" &&
+        typeof data.ivB64 === "string" &&
+        typeof data.ciphertextB64 === "string"
+    );
+}
+
+/** PBKDF2 迭代次数（与解密须一致） */
+var DONGTIAN_SAVE_PBKDF2_ITERATIONS = 100000;
+
+function dongtianSaveEncryptPayload(plainUtf8, password) {
+    return new Promise(function (resolve, reject) {
+        if (!dongtianSaveEncryptionAvailable()) {
+            reject(new Error("NO_CRYPTO"));
+            return;
+        }
+        var salt = crypto.getRandomValues(new Uint8Array(16));
+        var iv = crypto.getRandomValues(new Uint8Array(12));
+        var enc = new TextEncoder();
+        var pwdBuf = enc.encode(String(password));
+        crypto.subtle
+            .importKey("raw", pwdBuf, "PBKDF2", false, ["deriveKey"])
+            .then(function (baseKey) {
+                return crypto.subtle.deriveKey(
+                    {
+                        name: "PBKDF2",
+                        salt: salt,
+                        iterations: DONGTIAN_SAVE_PBKDF2_ITERATIONS,
+                        hash: "SHA-256",
+                    },
+                    baseKey,
+                    { name: "AES-GCM", length: 256 },
+                    false,
+                    ["encrypt"]
+                );
+            })
+            .then(function (aesKey) {
+                var plainBytes = enc.encode(plainUtf8);
+                return crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, aesKey, plainBytes);
+            })
+            .then(function (ctBuf) {
+                var ct = new Uint8Array(ctBuf);
+                resolve({
+                    game: "dongtian-jie",
+                    format: 3,
+                    encrypted: true,
+                    scheme: "pbkdf2-sha256-aes256-gcm-v1",
+                    exportedAt: new Date().toISOString(),
+                    saltB64: dongtianB64FromBytes(salt),
+                    ivB64: dongtianB64FromBytes(iv),
+                    ciphertextB64: dongtianB64FromBytes(ct),
+                });
+            })
+            .catch(reject);
+    });
+}
+
+function dongtianSaveDecryptEnvelope(envelope, password) {
+    return new Promise(function (resolve, reject) {
+        if (!dongtianIsEncryptedSaveEnvelope(envelope)) {
+            reject(new Error("无效加密存档"));
+            return;
+        }
+        if (!dongtianSaveEncryptionAvailable()) {
+            reject(new Error("NO_CRYPTO"));
+            return;
+        }
+        var salt = dongtianBytesFromB64(envelope.saltB64);
+        var iv = dongtianBytesFromB64(envelope.ivB64);
+        var ct = dongtianBytesFromB64(envelope.ciphertextB64);
+        var enc = new TextEncoder();
+        var pwdBuf = enc.encode(String(password));
+        crypto.subtle
+            .importKey("raw", pwdBuf, "PBKDF2", false, ["deriveKey"])
+            .then(function (baseKey) {
+                return crypto.subtle.deriveKey(
+                    {
+                        name: "PBKDF2",
+                        salt: salt,
+                        iterations: DONGTIAN_SAVE_PBKDF2_ITERATIONS,
+                        hash: "SHA-256",
+                    },
+                    baseKey,
+                    { name: "AES-GCM", length: 256 },
+                    false,
+                    ["decrypt"]
+                );
+            })
+            .then(function (aesKey) {
+                return crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, aesKey, ct);
+            })
+            .then(function (ptBuf) {
+                resolve(new TextDecoder().decode(new Uint8Array(ptBuf)));
+            })
+            .catch(function () {
+                reject(new Error("密码错误或文件已损坏"));
+            });
+    });
+}
+
+function dongtianRemoveSavePasswordOverlay() {
+    var h = document.getElementById("dongtian-save-pw-host");
+    if (h && h.parentNode) {
+        h.parentNode.removeChild(h);
+    }
+}
+
+/** 导出：全屏弹窗设置密码（替代 prompt，便于手机输入） */
+function dongtianOpenExportPasswordModal(onConfirm) {
+    dongtianRemoveSavePasswordOverlay();
+    var host = document.createElement("div");
+    host.id = "dongtian-save-pw-host";
+    host.className = "dongtian-save-pw-host";
+    host.setAttribute("role", "dialog");
+    host.setAttribute("aria-modal", "true");
+    host.innerHTML =
+        '<div class="dongtian-save-pw-backdrop" id="dongtian-save-pw-backdrop" tabindex="-1"></div>' +
+        '<div class="dongtian-save-pw-sheet">' +
+        '<div class="content-head">' +
+        "<h3>设置导出密码</h3>" +
+        '<p id="dongtian-save-pw-close" tabindex="0"><i class="fa fa-xmark"></i></p>' +
+        "</div>" +
+        '<p class="dongtian-save-hint">导入加密存档时需填写相同密码，请牢记。</p>' +
+        '<label class="dongtian-field-label" for="dongtian-export-pw1">密码</label>' +
+        '<input type="password" id="dongtian-export-pw1" class="dongtian-save-pw-input" maxlength="128" autocomplete="new-password" spellcheck="false" autocapitalize="off" autocorrect="off" />' +
+        '<label class="dongtian-field-label" for="dongtian-export-pw2">确认密码</label>' +
+        '<input type="password" id="dongtian-export-pw2" class="dongtian-save-pw-input" maxlength="128" autocomplete="new-password" spellcheck="false" autocapitalize="off" autocorrect="off" />' +
+        '<div class="dongtian-save-actions dongtian-save-pw-actions">' +
+        '<button type="button" class="btn btn--sm btn--primary" id="dongtian-export-pw-ok">确认导出</button>' +
+        '<button type="button" class="btn btn--sm btn--ghost" id="dongtian-export-pw-cancel">取消</button>' +
+        "</div>" +
+        "</div>";
+    document.body.appendChild(host);
+
+    var inp1 = document.getElementById("dongtian-export-pw1");
+    var inp2 = document.getElementById("dongtian-export-pw2");
+    var close = function () {
+        dongtianRemoveSavePasswordOverlay();
+    };
+    var tryOk = function () {
+        var p1 = inp1 ? String(inp1.value || "") : "";
+        var p2 = inp2 ? String(inp2.value || "") : "";
+        if (!p1.trim()) {
+            alert("密码不能为空。");
+            return;
+        }
+        if (p1 !== p2) {
+            alert("两次输入的密码不一致。");
+            return;
+        }
+        dongtianRemoveSavePasswordOverlay();
+        onConfirm(p1);
+    };
+    document.getElementById("dongtian-export-pw-ok").onclick = tryOk;
+    document.getElementById("dongtian-export-pw-cancel").onclick = close;
+    document.getElementById("dongtian-save-pw-close").onclick = close;
+    document.getElementById("dongtian-save-pw-backdrop").onclick = close;
+    if (inp2) {
+        inp2.addEventListener("keydown", function (ev) {
+            if (ev.key === "Enter") {
+                ev.preventDefault();
+                tryOk();
+            }
+        });
+    }
+    if (inp1) {
+        inp1.addEventListener("keydown", function (ev) {
+            if (ev.key === "Enter") {
+                ev.preventDefault();
+                if (inp2) inp2.focus();
+            }
+        });
+    }
+    setTimeout(function () {
+        try {
+            if (inp1) {
+                inp1.focus();
+            }
+        } catch (eF) {}
+    }, 80);
+}
+
+/** 导入加密档：弹窗输入密码；onCancel 在关闭/取消时调用（如清空 file input） */
+function dongtianOpenImportPasswordModal(onConfirm, onCancel) {
+    dongtianRemoveSavePasswordOverlay();
+    var host = document.createElement("div");
+    host.id = "dongtian-save-pw-host";
+    host.className = "dongtian-save-pw-host";
+    host.setAttribute("role", "dialog");
+    host.setAttribute("aria-modal", "true");
+    host.innerHTML =
+        '<div class="dongtian-save-pw-backdrop" id="dongtian-save-pw-backdrop" tabindex="-1"></div>' +
+        '<div class="dongtian-save-pw-sheet">' +
+        '<div class="content-head">' +
+        "<h3>输入存档密码</h3>" +
+        '<p id="dongtian-save-pw-close" tabindex="0"><i class="fa fa-xmark"></i></p>' +
+        "</div>" +
+        '<p class="dongtian-save-hint">请输入导出该文件时设置的密码。</p>' +
+        '<label class="dongtian-field-label" for="dongtian-import-pw">密码</label>' +
+        '<input type="password" id="dongtian-import-pw" class="dongtian-save-pw-input" maxlength="128" autocomplete="current-password" spellcheck="false" autocapitalize="off" autocorrect="off" />' +
+        '<div class="dongtian-save-actions dongtian-save-pw-actions">' +
+        '<button type="button" class="btn btn--sm btn--primary" id="dongtian-import-pw-ok">确认导入</button>' +
+        '<button type="button" class="btn btn--sm btn--ghost" id="dongtian-import-pw-cancel">取消</button>' +
+        "</div>" +
+        "</div>";
+    document.body.appendChild(host);
+
+    var inp = document.getElementById("dongtian-import-pw");
+    var close = function () {
+        dongtianRemoveSavePasswordOverlay();
+        if (typeof onCancel === "function") {
+            try {
+                onCancel();
+            } catch (eCan) {}
+        }
+    };
+    var tryOk = function () {
+        var pw = inp ? String(inp.value || "").trim() : "";
+        if (!pw) {
+            alert("密码不能为空。");
+            return;
+        }
+        dongtianRemoveSavePasswordOverlay();
+        onConfirm(pw);
+    };
+    document.getElementById("dongtian-import-pw-ok").onclick = tryOk;
+    document.getElementById("dongtian-import-pw-cancel").onclick = close;
+    document.getElementById("dongtian-save-pw-close").onclick = close;
+    document.getElementById("dongtian-save-pw-backdrop").onclick = close;
+    if (inp) {
+        inp.addEventListener("keydown", function (ev) {
+            if (ev.key === "Enter") {
+                ev.preventDefault();
+                tryOk();
+            }
+        });
+    }
+    setTimeout(function () {
+        try {
+            if (inp) inp.focus();
+        } catch (eFi) {}
+    }, 80);
+}
+
+
+function dongtianExportSaveTxtBlob() {
+    if (!dongtianSaveEncryptionAvailable()) {
+        alert(
+            ""
+        );
+        return;
+    }
+    dongtianOpenExportPasswordModal(function (pw) {
+    var payload = {
+        game: "dongtian-jie",
+        format: 1,
+        exportedAt: new Date().toISOString(),
+        playerData: JSON.stringify(player),
+        dungeonData: JSON.stringify(dungeon),
+        enemyData: JSON.stringify(typeof enemy !== "undefined" && enemy ? enemy : {}),
+    };
+    var innerJson = JSON.stringify(payload);
+    dongtianSaveEncryptPayload(innerJson, pw)
+        .then(function (envelope) {
+            var out = JSON.stringify(envelope, null, 2);
+            var blob = new Blob([out], { type: "text/plain;charset=utf-8" });
+            var a = document.createElement("a");
+            var stamp = new Date();
+            var fn =
+                "dongtianjie-save-" +
+                stamp.getFullYear() +
+                String(stamp.getMonth() + 1).padStart(2, "0") +
+                String(stamp.getDate()).padStart(2, "0") +
+                "-" +
+                String(stamp.getHours()).padStart(2, "0") +
+                String(stamp.getMinutes()).padStart(2, "0") +
+                ".txt";
+            a.href = URL.createObjectURL(blob);
+            a.download = fn;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(function () {
+                URL.revokeObjectURL(a.href);
+            }, 4000);
+        })
+        .catch(function (err) {
+            if (err && err.message === "NO_CRYPTO") {
+                alert(
+                    "当前环境无法使用保存。"
+                );
+            } else {
+                alert((err && err.message) || String(err));
+            }
+        });
+    });
+}
+
+/** 开局首屏加载时长（ms），与 #loading 动画衔接 */
+var DONGTIAN_BOOT_INTRO_MS = 640;
+
+function shouldShowNameEntryForBoot() {
+    if (!player || player.allocated) return false;
+    if (typeof getParentPlayerName === "function" && getParentPlayerName()) return false;
+    if (player.name && player.name !== "无名散修") return false;
+    return true;
+}
+
+/** 赐名页 → 再进入塑道本源（不改 allocationPopup 内加点逻辑） */
+function openNameEntryThenAllocation() {
+    var hub = document.querySelector("#dungeon-main");
+    if (hub) hub.style.display = "none";
+    defaultModalElement.style.display = "flex";
+    defaultModalElement.classList.remove("modal-container--allocate");
+    var cur = (player && player.name) ? String(player.name) : "无名散修";
+    defaultModalElement.innerHTML =
+        '<div class="content name-entry-sheet">' +
+        '<div class="content-head">' +
+        "<h3>赐道号</h3>" +
+        "</div>" +
+        '<p class="name-entry-hint">一至十五字皆可；留空将用「无名散修」。</p>' +
+        '<label class="name-entry-label" for="name-entry-input">道号</label>' +
+        '<input type="text" id="name-entry-input" class="name-entry-input" maxlength="15" autocomplete="off" spellcheck="false" value="' +
+        String(cur).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;") +
+        '" />' +
+        '<button type="button" class="btn btn--primary name-entry-confirm" id="name-entry-confirm">踏入洞天</button>' +
+        "</div>";
+    var inp = document.getElementById("name-entry-input");
+    var btn = document.getElementById("name-entry-confirm");
+    if (inp) {
+        try {
+            inp.focus();
+            inp.select();
+        } catch (eInp) {}
+        inp.addEventListener("keydown", function (ev) {
+            if (ev.key === "Enter") {
+                ev.preventDefault();
+                btn.click();
+            }
+        });
+    }
+    btn.onclick = function () {
+        var raw = (inp && inp.value) ? String(inp.value) : "";
+        raw = raw
+            .trim()
+            .replace(/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]+/g, "");
+        if (raw.length < 1) {
+            raw = "无名散修";
+        }
+        if (raw.length > 15) {
+            raw = raw.slice(0, 15);
+        }
+        player.name = raw;
+        if (typeof saveData === "function") saveData();
+        defaultModalElement.style.display = "none";
+        defaultModalElement.innerHTML = "";
+        if (hub) hub.style.display = "flex";
+        allocationPopup();
+    };
+}
+
+function startBootIntroSequence() {
+    var loader = document.querySelector("#loading");
+    var hub = document.querySelector("#dungeon-main");
+    if (hub) hub.style.display = "none";
+    if (loader) loader.style.display = "flex";
+    setTimeout(function () {
+        if (loader) loader.style.display = "none";
+        if (player.allocated) {
+            enterDungeon(true);
+            return;
+        }
+        if (shouldShowNameEntryForBoot()) {
+            openNameEntryThenAllocation();
+        } else {
+            if (hub) hub.style.display = "flex";
+            allocationPopup();
+        }
+    }, DONGTIAN_BOOT_INTRO_MS);
+}
+
+function sanitizeDongtianMenuPlayerName(raw) {
+    var s = String(raw || "")
+        .trim()
+        .replace(/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]+/g, "");
+    if (s.length < 1) {
+        return "无名散修";
+    }
+    if (s.length > 15) {
+        return s.slice(0, 15);
+    }
+    return s;
+}
+
+/** 本地头像 data URL 长度上限（约数百 KB），避免撑爆 localStorage */
+var DONGTIAN_AVATAR_DATAURL_MAX = 480000;
+
+function refreshDongtianMenuPlayerButton() {
+    var pm = document.querySelector("#player-menu");
+    if (pm && player) {
+        pm.innerHTML = '<i class="fas fa-user"></i>' + (player.name != null ? String(player.name) : "");
+    }
+}
+
+function dongtianApplyImportedSavePayload(data) {
+    if (!data || typeof data !== "object") throw new Error("无效数据");
+    var p;
+    var d;
+    var e;
+    if (data.playerData != null && data.dungeonData != null) {
+        p = typeof data.playerData === "string" ? data.playerData : JSON.stringify(data.playerData);
+        d = typeof data.dungeonData === "string" ? data.dungeonData : JSON.stringify(data.dungeonData);
+        e = data.enemyData != null ? (typeof data.enemyData === "string" ? data.enemyData : JSON.stringify(data.enemyData)) : "{}";
+    } else if (data.player && data.dungeon) {
+        p = JSON.stringify(data.player);
+        d = JSON.stringify(data.dungeon);
+        e = data.enemy != null ? JSON.stringify(data.enemy) : "{}";
+    } else {
+        throw new Error("缺少 player/dungeon 存档字段（需导出格式或含 player、dungeon 对象）");
+    }
+    JSON.parse(p);
+    JSON.parse(d);
+    JSON.parse(e);
+    if (window.DONGTIAN_CLOUD_MODE) {
+        throw new Error("当前为联网嵌入模式：请用单机打开 index.html 后再使用「从文件导入」");
+    }
+    localStorage.setItem("playerData", p);
+    localStorage.setItem("dungeonData", d);
+    localStorage.setItem("enemyData", e);
+    location.reload();
+}
+
+function dilaoGameBoot() {
     if (typeof loadDungeonStateFromStorage === "function") loadDungeonStateFromStorage();
 
     var parentName = getParentPlayerName();
@@ -172,16 +936,21 @@ window.addEventListener("load", function () {
     if (player && player.inventory && player.inventory.materials && typeof player.inventory.materials.enhance_stone !== "number") {
         player.inventory.materials.enhance_stone = 0;
     }
+    if (player && player.inventory && player.inventory.materials && typeof player.inventory.materials.enchant_stone !== "number") {
+        player.inventory.materials.enchant_stone = 0;
+    }
+    if (player && player.inventory && player.inventory.materials && typeof player.inventory.materials.god_essence_stone !== "number") {
+        player.inventory.materials.god_essence_stone = 0;
+    }
     if (player && player.inventory && player.inventory.bagTab !== "equip" && player.inventory.bagTab !== "mat" && player.inventory.bagTab !== "gem") {
         player.inventory.bagTab = "equip";
     }
+    if (player && typeof ensureInventoryUiFilters === "function") ensureInventoryUiFilters();
+    if (typeof syncInventorySellRarityDom === "function") syncInventorySellRarityDom();
     if (typeof ensurePlayerGemStacks === "function") ensurePlayerGemStacks();
     if (typeof ensureGemMaterialsInInventory === "function") ensureGemMaterialsInInventory();
     if (player && (!player.miningDaily || typeof player.miningDaily !== "object")) {
         player.miningDaily = { tickets: 5, lastTs: Date.now() };
-    }
-    if (player && typeof player === "object" && typeof player.avatar !== "string") {
-        player.avatar = "";
     }
 
     if (typeof migrateAllPlayerEquipmentEnhance305 === "function") {
@@ -193,7 +962,32 @@ window.addEventListener("load", function () {
             saveData();
         }
     }
+    if (typeof repairAllPlayerEquipmentToFloorScalingCap === "function" && player && !player.equipmentFloorClampApplied2026) {
+        repairAllPlayerEquipmentToFloorScalingCap();
+        player.equipmentFloorClampApplied2026 = true;
+        saveData();
+    }
+    /** 机缘四维缩放 0.3 + 当前封顶公式：对背包/身负再跑一遍 normalize（与上条独立标记，老档已做过层封顶也会执行一次） */
+    if (typeof repairAllPlayerEquipmentToFloorScalingCap === "function" && player && !player.equipmentSecondaryCapScale03Migrate2026) {
+        repairAllPlayerEquipmentToFloorScalingCap();
+        player.equipmentSecondaryCapScale03Migrate2026 = true;
+        saveData();
+    }
+    /** 敌势层上限公式调整（如 1.3+(n−1)×0.1）：背包 + 身负遗器再按新上限封顶一次 */
+    if (typeof repairAllPlayerEquipmentToFloorScalingCap === "function" && player && !player.equipmentEnemyScalingCeilingMigrate2026) {
+        repairAllPlayerEquipmentToFloorScalingCap();
+        player.equipmentEnemyScalingCeilingMigrate2026 = true;
+        saveData();
+    }
+    /** 遗器联合预算（各属性占各自上限比例之和 ≤1）：避免独立封顶后四维同时顶满；老档再跑一次 normalize */
+    if (typeof repairAllPlayerEquipmentToFloorScalingCap === "function" && player && !player.equipmentJointStatBudgetMigrate2026) {
+        repairAllPlayerEquipmentToFloorScalingCap();
+        player.equipmentJointStatBudgetMigrate2026 = true;
+        saveData();
+    }
     if (typeof ensurePlayerPetCollection === "function") ensurePlayerPetCollection();
+    if (typeof ensurePlayerTitleFields === "function") ensurePlayerTitleFields();
+    // 补全老存档的“历史最高秘境层数”字段
     if (player && typeof player === "object") {
         var _changedMaxFloor = false;
         var _curFloor = typeof dungeon !== "undefined" && dungeon && dungeon.progress && typeof dungeon.progress.floor === "number" ? dungeon.progress.floor : 1;
@@ -214,18 +1008,32 @@ window.addEventListener("load", function () {
     if (typeof playerLoadStats === "function") {
         playerLoadStats();
     }
+    /** 读档/联网拉档后压一次修为条：与当前层封顶对齐（不会把 15「加」到 16；若存档已是 16 则仍为 16，除非另做降级迁移） */
+    if (typeof dongtianDungeonPlayerExpApplyLevelUpsAndClamp === "function") {
+        dongtianDungeonPlayerExpApplyLevelUpsAndClamp();
+    }
 
-    if (player.allocated) {
-        enterDungeon();
-    } else {
-        document.querySelector("#dungeon-main").style.display = "flex";
-        showCultivationIntroScreen(function () {
-            allocationPopup();
-        });
+    startBootIntroSequence();
+
+    if (window.DONGTIAN_CLOUD_MODE && typeof startDongtianInboxPoll === "function") {
+        startDongtianInboxPoll();
+    }
+
+    if (window.DONGTIAN_CLOUD_MODE) {
+        window.initDongtianCloudMarketAndArenaUi();
+        setTimeout(function () {
+            window.initDongtianCloudMarketAndArenaUi();
+        }, 0);
+        setTimeout(function () {
+            window.initDongtianCloudMarketAndArenaUi();
+        }, 500);
     }
 
     // Unequip all items
-    document.querySelector("#unequip-all").addEventListener("click", function () {
+    var unequipAllBtn = document.querySelector("#unequip-all");
+    if (!unequipAllBtn) {
+        // 行囊结构异常时仍应完成卷宗等绑定，避免修仙市场/武神坛永远不初始化
+    } else unequipAllBtn.addEventListener("click", function () {
 
         dungeon.status.exploring = false;
         let dimTarget = document.querySelector('#inventory');
@@ -272,7 +1080,8 @@ window.addEventListener("load", function () {
         };
     });
 
-    document.querySelector("#menu-btn").addEventListener("click", function () {
+    var menuBtnEl = document.querySelector("#menu-btn");
+    if (menuBtnEl) menuBtnEl.addEventListener("click", function () {
         closeInventory();
         if (typeof closeSectPassivesModal === "function") closeSectPassivesModal();
         if (typeof closePetModal === "function") closePetModal();
@@ -286,21 +1095,21 @@ window.addEventListener("load", function () {
         menuModalElement.innerHTML = `
         <div class="content">
             <div class="content-head">
-                <h3>卷宗丶加QQ群902481027</h3>
+                <h3>卷宗   联网版本加群902481027</h3>
                 <p id="close-menu"><i class="fa fa-xmark"></i></p>
             </div>
-            <button id="player-menu"><i class="fas fa-user"></i>${player.name}</button>
-            <button id="stats">本轮秘境</button>
-            <button id="settings-save">设置 / 存档</button>
-            <button id="changelog-menu">更新日记</button>
-            <button id="quit-run">退出秘境</button>
+            <button type="button" id="player-menu"><i class="fas fa-user"></i>${player.name}</button>
+            <button type="button" id="stats">本轮秘境</button>
+            <button type="button" id="menu-changelog">更新日记</button>
+            <button type="button" id="menu-save">存档</button>
+            <button type="button" id="quit-run">退出秘境</button>
         </div>`;
 
         let close = document.querySelector('#close-menu');
         let playerMenu = document.querySelector('#player-menu');
         let runMenu = document.querySelector('#stats');
-        let settingsSave = document.querySelector('#settings-save');
-        let changelogMenu = document.querySelector('#changelog-menu');
+        let menuChangelog = document.querySelector('#menu-changelog');
+        let menuSave = document.querySelector('#menu-save');
         let quitRun = document.querySelector('#quit-run');
 
         // Player profile click function
@@ -396,225 +1205,197 @@ window.addEventListener("load", function () {
             };
         };
 
-        // Settings / Save (encrypted TXT)
-        settingsSave.onclick = function () {
+        menuChangelog.onclick = function () {
             menuModalElement.style.display = "none";
             defaultModalElement.style.display = "flex";
             defaultModalElement.innerHTML = `
-            <div class="content" id="settings-save-tab">
+            <div class="content changelog-modal-sheet">
                 <div class="content-head">
-                    <h3>设置 / 存档</h3>
-                    <p id="settings-save-close"><i class="fa fa-xmark"></i></p>
+                    <h3>更新日记</h3>
+                    <p id="changelog-close"><i class="fa fa-xmark"></i></p>
                 </div>
-                <div class="settings-profile-block">
-                    <p class="settings-profile-block__title">角色</p>
-                    <label class="settings-profile-block__lbl" for="settings-player-name">道号</label>
-                    <input id="settings-player-name" type="text" maxlength="15" autocomplete="nickname" placeholder="2–15 字" />
-                    <button type="button" id="settings-save-name">保存道号</button>
-                    <div class="settings-profile-block__avatar-row">
-                        <div id="settings-avatar-preview" class="settings-avatar-preview" aria-hidden="true"></div>
-                        <div class="settings-profile-block__avatar-actions">
-                            <input id="settings-avatar-file" type="file" accept="image/*" style="display:none" />
-                            <button type="button" id="settings-avatar-pick">选择头像</button>
-                            <button type="button" id="settings-avatar-clear" class="btn btn--ghost">恢复默认</button>
-                        </div>
-                    </div>
-                    <p class="settings-profile-block__hint">头像会压缩后存于本地，约 128px。</p>
-                </div>
-                <p class="settings-save-divider">加密存档</p>
-                <p style="opacity:.85;font-size:.9rem;line-height:1.2rem;">
-                    加密存档会用你填写的密码加密为 TXT。<b>忘记密码将无法恢复</b>。
-                </p>
-                <input id="save-pass" type="password" placeholder="密码（至少 4 位）" autocomplete="new-password" />
-                <input id="save-pass2" type="password" placeholder="再次输入密码（导出用）" autocomplete="new-password" />
-                <div class="button-container">
-                    <button id="btn-save-download">加密下载 TXT</button>
-                    <button id="btn-save-import">导入 TXT</button>
-                </div>
-                <input id="save-file" type="file" accept=".txt,application/json,text/plain" style="display:none" />
-                <p id="save-msg" style="min-height:1.2rem;opacity:.9;"></p>
+                <div class="changelog-scroll scrollable">${DONGTIAN_JIE_CHANGELOG_HTML}</div>
             </div>`;
-
-            const tab = document.querySelector("#settings-save-tab");
-            if (tab) tab.style.width = "19rem";
-            const closeBtn = document.querySelector("#settings-save-close");
-            const passEl = document.querySelector("#save-pass");
-            const pass2El = document.querySelector("#save-pass2");
-            const msgEl = document.querySelector("#save-msg");
-            const btnDownload = document.querySelector("#btn-save-download");
-            const btnImport = document.querySelector("#btn-save-import");
-            const fileEl = document.querySelector("#save-file");
-            const nameInput = document.querySelector("#settings-player-name");
-            const btnSaveName = document.querySelector("#settings-save-name");
-            const avatarFile = document.querySelector("#settings-avatar-file");
-            const avatarPick = document.querySelector("#settings-avatar-pick");
-            const avatarClear = document.querySelector("#settings-avatar-clear");
-            const avatarPreview = document.querySelector("#settings-avatar-preview");
-
-            function setMsg(t) {
-                if (msgEl) msgEl.textContent = t || "";
-            }
-
-            function syncSettingsAvatarPreview() {
-                if (!avatarPreview) return;
-                if (player && player.avatar && typeof player.avatar === "string" && player.avatar.indexOf("data:") === 0) {
-                    avatarPreview.classList.add("settings-avatar-preview--custom");
-                    avatarPreview.style.backgroundImage = "url(" + JSON.stringify(player.avatar) + ")";
-                } else {
-                    avatarPreview.classList.remove("settings-avatar-preview--custom");
-                    avatarPreview.style.backgroundImage = "";
-                }
-            }
-
-            if (nameInput) nameInput.value = player && player.name ? String(player.name) : "";
-            syncSettingsAvatarPreview();
-
-            if (btnSaveName) {
-                btnSaveName.onclick = function () {
-                    try {
-                        setMsg("");
-                        var raw = nameInput && nameInput.value ? String(nameInput.value).trim() : "";
-                        if (raw.length < 2) throw new Error("道号至少 2 字。");
-                        if (raw.length > 15) throw new Error("道号至多 15 字。");
-                        if (player) {
-                            player.name = raw.replace(/[<>\"&]/g, "");
-                            saveData();
-                            playerLoadStats();
-                            setMsg("道号已保存。");
-                        }
-                    } catch (e) {
-                        setMsg(e && e.message ? e.message : "保存失败。");
-                    }
-                };
-            }
-
-            if (avatarPick && avatarFile) {
-                avatarPick.onclick = function () {
-                    setMsg("");
-                    avatarFile.click();
-                };
-            }
-
-            if (avatarFile) {
-                avatarFile.onchange = function () {
-                    try {
-                        setMsg("");
-                        var f = avatarFile.files && avatarFile.files[0] ? avatarFile.files[0] : null;
-                        if (!f) return;
-                        if (!/^image\//.test(f.type)) throw new Error("请选择图片文件。");
-                        if (f.size > 4 * 1024 * 1024) throw new Error("图片请小于 4MB。");
-                        resizeImageToAvatarDataUrl(f, function (err, dataUrl) {
-                            if (err) {
-                                setMsg(err.message || "处理失败。");
-                                return;
-                            }
-                            if (player) {
-                                player.avatar = dataUrl;
-                                saveData();
-                                playerLoadStats();
-                                syncSettingsAvatarPreview();
-                                setMsg("头像已更新。");
-                            }
-                            avatarFile.value = "";
-                        });
-                    } catch (e) {
-                        setMsg(e && e.message ? e.message : "选择失败。");
-                        avatarFile.value = "";
-                    }
-                };
-            }
-
-            if (avatarClear) {
-                avatarClear.onclick = function () {
-                    setMsg("");
-                    if (player) {
-                        player.avatar = "";
-                        saveData();
-                        playerLoadStats();
-                        syncSettingsAvatarPreview();
-                        setMsg("已恢复默认头像。");
-                    }
-                    if (avatarFile) avatarFile.value = "";
-                };
-            }
-
-            closeBtn.onclick = function () {
+            var ch = document.querySelector(".changelog-modal-sheet");
+            if (ch) ch.style.maxWidth = "min(22rem, 94vw)";
+            document.querySelector("#changelog-close").onclick = function () {
                 defaultModalElement.style.display = "none";
                 defaultModalElement.innerHTML = "";
                 menuModalElement.style.display = "flex";
             };
-
-            btnDownload.onclick = async function () {
-                try {
-                    setMsg("");
-                    const p1 = (passEl && passEl.value) ? passEl.value : "";
-                    const p2 = (pass2El && pass2El.value) ? pass2El.value : "";
-                    if (p1.length < 4) throw new Error("密码至少 4 位。");
-                    if (p1 !== p2) throw new Error("两次输入的密码不一致。");
-                    const snap = _buildSaveSnapshot();
-                    const txt = await encryptSaveSnapshotToTxt(snap, p1);
-                    const stamp = new Date().toISOString().slice(0, 10);
-                    const safeName = String((player && player.name) ? player.name : "player").replace(/[\\\/:*?"<>|]/g, "_");
-                    _downloadTextFile(`dilao_save_${safeName}_${stamp}.txt`, txt);
-                    setMsg("已生成加密 TXT 存档。");
-                } catch (e) {
-                    setMsg(e && e.message ? e.message : "导出失败。");
-                }
-            };
-
-            btnImport.onclick = function () {
-                try {
-                    setMsg("");
-                    if (fileEl) fileEl.click();
-                } catch (e) {
-                    setMsg("无法打开文件选择器。");
-                }
-            };
-
-            fileEl.onchange = async function () {
-                try {
-                    setMsg("");
-                    const f = fileEl.files && fileEl.files[0] ? fileEl.files[0] : null;
-                    if (!f) return;
-                    const txt = await f.text();
-                    const p = (passEl && passEl.value) ? passEl.value : "";
-                    if (p.length < 4) throw new Error("请输入密码（至少 4 位）再导入。");
-                    const snap = await decryptTxtToSaveSnapshot(txt, p);
-                    applySaveSnapshotToLocalStorage(snap);
-                    setMsg("导入成功，正在刷新页面…");
-                    setTimeout(() => location.reload(), 350);
-                } catch (e) {
-                    setMsg(e && e.message ? e.message : "导入失败。");
-                } finally {
-                    if (fileEl) fileEl.value = "";
-                }
-            };
         };
 
-        if (changelogMenu) {
-            changelogMenu.onclick = function () {
-                menuModalElement.style.display = "none";
-                defaultModalElement.style.display = "flex";
-                defaultModalElement.innerHTML = `
-                <div class="content" id="update-log-tab">
-                    <div class="content-head">
-                        <h3>更新日志</h3>
-                        <p id="update-log-close"><i class="fa fa-xmark"></i></p>
-                    </div>
-                    <div class="update-log-body scrollable">${GAME_CHANGELOG_HTML}</div>
-                </div>`;
-                var updateLogTab = document.querySelector("#update-log-tab");
-                if (updateLogTab) updateLogTab.style.width = "18rem";
-                var updateLogClose = document.querySelector("#update-log-close");
-                if (updateLogClose) {
-                    updateLogClose.onclick = function () {
-                        defaultModalElement.style.display = "none";
-                        defaultModalElement.innerHTML = "";
-                        menuModalElement.style.display = "flex";
-                    };
+        menuSave.onclick = function () {
+            menuModalElement.style.display = "none";
+            defaultModalElement.style.display = "flex";
+            var isCloud = !!window.DONGTIAN_CLOUD_MODE;
+            var escName = player && player.name != null ? String(player.name).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;") : "";
+            defaultModalElement.innerHTML = `
+            <div class="content dongtian-save-sheet">
+                <div class="content-head">
+                    <h3>存档</h3>
+                    <p id="save-panel-close"><i class="fa fa-xmark"></i></p>
+                </div>
+                <h4 class="dongtian-save-section-title">角色档案</h4>
+                <p class="dongtian-save-section-desc">改名与头像</p>
+                <label class="dongtian-field-label" for="dongtian-rename-input">道号</label>
+                <div class="dongtian-rename-row">
+                    <input type="text" id="dongtian-rename-input" class="dongtian-rename-input" maxlength="15" autocomplete="off" value="${escName}" />
+                    <button type="button" class="btn btn--sm btn--accent" id="dongtian-rename-save">保存道号</button>
+                </div>
+                <label class="dongtian-field-label">头像</label>
+                ${
+                    isCloud
+                        ? '<p class="dongtian-save-hint dongtian-save-hint--tight">修改头像。</p>'
+                        : '<div class="dongtian-avatar-row">' +
+                          '<button type="button" class="btn btn--sm btn--ghost" id="dongtian-avatar-pick">选择图片…</button>' +
+                          '<button type="button" class="btn btn--sm btn--ghost" id="dongtian-avatar-clear">恢复默认</button>' +
+                          '<input type="file" id="dongtian-avatar-file" accept="image/*" style="display:none" />' +
+                          "</div>" +
+                          '<p class="dongtian-save-hint dongtian-save-hint--tight">支持常见图片格式；过大时请换较小文件（约数百 KB 内）。</p>'
+                }
+                <h4 class="dongtian-save-section-title">备份与恢复</h4>
+                <p class="dongtian-save-hint">${
+                    isCloud
+                        ? ""
+                        : "进度保存在本机浏览器。建议定期导出加密备份；清除站点数据或换电脑前请先备份。"
+                }</p>
+                <div class="dongtian-save-actions">
+                    <button type="button" class="btn btn--sm btn--primary" id="dongtian-btn-export">导出加密存档（TXT）</button>
+                    ${
+                        isCloud
+                            ? ""
+                            : '<button type="button" class="btn btn--sm btn--ghost" id="dongtian-btn-import">从文件导入…</button><input type="file" id="dongtian-file-import" accept="text/plain,.txt,application/json,.json" style="display:none" />'
+                    }
+                </div>
+            </div>`;
+            var renameInp = document.getElementById("dongtian-rename-input");
+            document.getElementById("dongtian-rename-save").onclick = function () {
+                try {
+                    player.name = sanitizeDongtianMenuPlayerName(renameInp ? renameInp.value : "");
+                    if (typeof saveData === "function") saveData();
+                    if (typeof playerLoadStats === "function") playerLoadStats();
+                    refreshDongtianMenuPlayerButton();
+                } catch (exR) {
+                    alert(exR.message || String(exR));
                 }
             };
-        }
+            if (!isCloud) {
+                var avPick = document.getElementById("dongtian-avatar-pick");
+                var avFile = document.getElementById("dongtian-avatar-file");
+                var avClear = document.getElementById("dongtian-avatar-clear");
+                if (avPick && avFile) {
+                    avPick.onclick = function () {
+                        avFile.click();
+                    };
+                    avFile.onchange = function (evA) {
+                        var fa = evA.target.files && evA.target.files[0];
+                        if (!fa) return;
+                        if (fa.size > 900000) {
+                            alert("图片文件过大，请选择约 800KB 以内的图片。");
+                            avFile.value = "";
+                            return;
+                        }
+                        var rdr = new FileReader();
+                        rdr.onload = function () {
+                            var du = String(rdr.result || "");
+                            if (du.length > DONGTIAN_AVATAR_DATAURL_MAX) {
+                                alert("图片编码后过大，请换一张更小的图。");
+                                avFile.value = "";
+                                return;
+                            }
+                            if (du.indexOf("data:image/") !== 0) {
+                                alert("请选择有效的图片文件。");
+                                avFile.value = "";
+                                return;
+                            }
+                            player.avatarDataUrl = du;
+                            if (typeof saveData === "function") saveData();
+                            if (typeof syncHudBarAvatar === "function") syncHudBarAvatar();
+                            avFile.value = "";
+                        };
+                        rdr.readAsDataURL(fa);
+                    };
+                }
+                if (avClear) {
+                    avClear.onclick = function () {
+                        try {
+                            delete player.avatarDataUrl;
+                            if (typeof saveData === "function") saveData();
+                            if (typeof syncHudBarAvatar === "function") syncHudBarAvatar();
+                        } catch (exC) {}
+                    };
+                }
+            }
+            document.getElementById("dongtian-btn-export").onclick = function () {
+                try {
+                    dongtianExportSaveTxtBlob();
+                } catch (ex) {
+                    alert(ex.message || String(ex));
+                }
+            };
+            var btnImp = document.getElementById("dongtian-btn-import");
+            var fileInp = document.getElementById("dongtian-file-import");
+            if (btnImp && fileInp) {
+                btnImp.onclick = function () {
+                    fileInp.click();
+                };
+                fileInp.onchange = function (ev) {
+                    var f = ev.target.files && ev.target.files[0];
+                    if (!f) return;
+                    var reader = new FileReader();
+                    reader.onload = function () {
+                        var txt = String(reader.result || "");
+                        var data;
+                        try {
+                            data = JSON.parse(txt);
+                        } catch (eParse) {
+                            alert("导入失败：无法解析文件（请确认是 UTF-8 文本存档）。");
+                            fileInp.value = "";
+                            return;
+                        }
+                        if (dongtianIsEncryptedSaveEnvelope(data)) {
+                            if (!dongtianSaveEncryptionAvailable()) {
+                                alert(
+                                    "加密存档需在支持加密的环境导入（https、localhost 或 127.0.0.1）。若以直接打开本地文件方式游玩，请改用本地网页服务打开后再导入。"
+                                );
+                                fileInp.value = "";
+                                return;
+                            }
+                            dongtianOpenImportPasswordModal(
+                                function (pwImp) {
+                                dongtianSaveDecryptEnvelope(data, pwImp)
+                                    .then(function (inner) {
+                                        var innerData = JSON.parse(inner);
+                                        dongtianApplyImportedSavePayload(innerData);
+                                    })
+                                    .catch(function (eDec) {
+                                        alert("导入失败：" + (eDec.message || eDec));
+                                        fileInp.value = "";
+                                    });
+                                },
+                                function () {
+                                    fileInp.value = "";
+                                }
+                            );
+                            return;
+                        }
+                        try {
+                            dongtianApplyImportedSavePayload(data);
+                        } catch (eImp) {
+                            alert("导入失败：" + (eImp.message || eImp));
+                            fileInp.value = "";
+                        }
+                    };
+                    reader.readAsText(f, "utf-8");
+                };
+            }
+            document.getElementById("save-panel-close").onclick = function () {
+                defaultModalElement.style.display = "none";
+                defaultModalElement.innerHTML = "";
+                menuModalElement.style.display = "flex";
+            };
+        };
 
         // Quit the current run
         quitRun.onclick = function () {
@@ -662,6 +1443,14 @@ window.addEventListener("load", function () {
             dimDungeon.style.filter = "brightness(100%)";
         };
     });
+}
+
+window.addEventListener("load", function () {
+    if (window.DONGTIAN_CLOUD_MODE) {
+        dongtianCloudLoadAndBoot();
+        return;
+    }
+    dilaoGameBoot();
 });
 
 // Loading Screen
@@ -685,37 +1474,80 @@ const isValidEnemySnapshot = (e) => {
     return e.stats.hp > 0;
 };
 
-const enterDungeon = () => {
-    runLoad("dungeon-main", "flex");
+const enterDungeon = (skipRunLoad) => {
+    if (skipRunLoad) {
+        var loaderSk = document.querySelector("#loading");
+        if (loaderSk) loaderSk.style.display = "none";
+        var dmSk = document.querySelector("#dungeon-main");
+        if (dmSk) dmSk.style.display = "flex";
+    } else {
+        runLoad("dungeon-main", "flex");
+    }
     if (player.inCombat) {
         let loadedEnemy = null;
         try {
-            loadedEnemy = JSON.parse(localStorage.getItem("enemyData"));
+            if (window.DONGTIAN_CLOUD_MODE) {
+                loadedEnemy = enemy;
+            } else {
+                loadedEnemy = JSON.parse(localStorage.getItem("enemyData"));
+            }
         } catch (e) {
             loadedEnemy = null;
         }
         if (isValidEnemySnapshot(loadedEnemy)) {
             enemy = loadedEnemy;
             showCombatInfo();
+            /** 重开页面续斗：无 combatTimerSync 时也要妖兽先手，由 combat.js 识别 */
+            if (typeof window !== "undefined") window.__combatForceEnemyFirstAfterReload = true;
             startCombat();
         } else {
+            // 旧档或异常状态：避免刷新后误进“null 敌人”斗法面板
             player.inCombat = false;
+            if (typeof window.clearCombatTimerSyncOnly === "function") window.clearCombatTimerSyncOnly();
             if (typeof dungeon !== "undefined" && dungeon && dungeon.status) {
                 dungeon.status.event = false;
             }
             saveData();
         }
     }
+    /** 先加载秘境存档。勿在此处因 hp==0 调用 progressReset，否则会先清空洞天历时/劫数再读档，导致重启后两项被初始化。 */
     initialDungeonLoad();
     if (player.stats.hp < 1 && !player.inCombat) {
-        player.stats.hp = player.stats.hpMax;
-        saveData();
+        if (window.DONGTIAN_CLOUD_MODE && typeof progressReset === "function" && typeof allocationPopup === "function") {
+            /** 与斗法里点「重整再战」一致：含第 1 层第 1 劫战败（原仅在 hasRunProgress 时 reset，关页不点重整会只加满血、仍 allocated，界面错位成「图2」） */
+            progressReset();
+            setTimeout(function () {
+                allocationPopup();
+            }, 350);
+        } else {
+            player.stats.hp = player.stats.hpMax;
+            saveData();
+        }
     }
     playerLoadStats();
 }
 
-// Save all the data into local storage
+// Save all the data into local storage（嵌入主游戏时改为联网账号存档）
 const saveData = () => {
+    if (typeof window.syncCombatWallTimersToPlayer === "function") window.syncCombatWallTimersToPlayer();
+    if (window.DONGTIAN_CLOUD_MODE) {
+        // 云档尚未完成有效拉取时，禁止上传，防止空内存/新建角色覆盖线上旧档。
+        if (!window.__dongtianCloudHydrated) return;
+        /** 嵌入但走本机回退：与单机相同写入 localStorage，不上传云 */
+        if (window.__dongtianCloudLocalFallback) {
+            const playerData = JSON.stringify(player);
+            const dungeonData = JSON.stringify(dungeon);
+            const enemyData = JSON.stringify(enemy);
+            try {
+                localStorage.setItem("playerData", playerData);
+                localStorage.setItem("dungeonData", dungeonData);
+                localStorage.setItem("enemyData", enemyData);
+            } catch (eLs) {}
+            return;
+        }
+        scheduleDongtianCloudSave();
+        return;
+    }
     const playerData = JSON.stringify(player);
     const dungeonData = JSON.stringify(dungeon);
     const enemyData = JSON.stringify(enemy);
@@ -724,180 +1556,12 @@ const saveData = () => {
     localStorage.setItem("enemyData", enemyData);
 }
 
-function _b64EncodeBytes(bytes) {
-    let bin = "";
-    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-    return btoa(bin);
-}
 
-function _b64DecodeToBytes(b64) {
-    const bin = atob(String(b64 || "").trim());
-    const out = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-    return out;
-}
-
-function _downloadTextFile(filename, text) {
-    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1500);
-}
-
-function _buildSaveSnapshot() {
-    // 用 localStorage 里的 JSON 串作为“最终权威”，避免内存状态被别处迁移逻辑覆盖/不同步
-    const playerData = localStorage.getItem("playerData") || JSON.stringify(player || null);
-    const dungeonData = localStorage.getItem("dungeonData") || JSON.stringify(dungeon || null);
-    const enemyData = localStorage.getItem("enemyData") || JSON.stringify(enemy || null);
-    return {
-        format: "dilao-save",
-        version: 1,
-        createdAt: Date.now(),
-        payload: { playerData, dungeonData, enemyData },
-    };
-}
-
-async function _deriveAesKeyFromPassword(password, saltBytes, iterations) {
-    const enc = new TextEncoder();
-    const keyMaterial = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveKey"]);
-    return await crypto.subtle.deriveKey(
-        { name: "PBKDF2", salt: saltBytes, iterations: iterations, hash: "SHA-256" },
-        keyMaterial,
-        { name: "AES-GCM", length: 256 },
-        false,
-        ["encrypt", "decrypt"]
-    );
-}
-
-async function encryptSaveSnapshotToTxt(snapshotObj, password) {
-    if (!crypto || !crypto.subtle) throw new Error("当前环境不支持 WebCrypto（crypto.subtle）。");
-    if (typeof password !== "string" || password.length < 4) throw new Error("密码至少 4 位。");
-
-    const enc = new TextEncoder();
-    const salt = crypto.getRandomValues(new Uint8Array(16));
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const iterations = 120000;
-    const key = await _deriveAesKeyFromPassword(password, salt, iterations);
-
-    const plain = enc.encode(JSON.stringify(snapshotObj));
-    const ctBuf = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plain);
-    const ct = new Uint8Array(ctBuf);
-
-    const wrapper = {
-        format: "dilao-save-encrypted",
-        version: 1,
-        kdf: { name: "PBKDF2", hash: "SHA-256", iterations: iterations, saltB64: _b64EncodeBytes(salt) },
-        cipher: { name: "AES-GCM", ivB64: _b64EncodeBytes(iv), ctB64: _b64EncodeBytes(ct) },
-    };
-    return JSON.stringify(wrapper, null, 2);
-}
-
-async function decryptTxtToSaveSnapshot(txt, password) {
-    if (!crypto || !crypto.subtle) throw new Error("当前环境不支持 WebCrypto（crypto.subtle）。");
-    if (typeof password !== "string" || password.length < 4) throw new Error("密码至少 4 位。");
-
-    let obj;
-    try {
-        obj = JSON.parse(txt);
-    } catch (e) {
-        throw new Error("TXT 内容不是有效 JSON。");
-    }
-
-    if (obj && obj.format === "dilao-save" && obj.payload) return obj;
-
-    if (!obj || obj.format !== "dilao-save-encrypted" || !obj.kdf || !obj.cipher) {
-        throw new Error("不是本游戏的加密存档格式。");
-    }
-    if (obj.kdf.name !== "PBKDF2" || obj.cipher.name !== "AES-GCM") {
-        throw new Error("不支持的加密参数。");
-    }
-
-    const salt = _b64DecodeToBytes(obj.kdf.saltB64);
-    const iv = _b64DecodeToBytes(obj.cipher.ivB64);
-    const ct = _b64DecodeToBytes(obj.cipher.ctB64);
-    const iterations = Math.max(1, Number(obj.kdf.iterations || 0));
-
-    const key = await _deriveAesKeyFromPassword(password, salt, iterations);
-    let plainBuf;
-    try {
-        plainBuf = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
-    } catch (e) {
-        throw new Error("解密失败：密码错误或文件损坏。");
-    }
-    const dec = new TextDecoder();
-    const snapshot = JSON.parse(dec.decode(new Uint8Array(plainBuf)));
-    if (!snapshot || snapshot.format !== "dilao-save" || !snapshot.payload) {
-        throw new Error("解密成功但内容不是有效存档。");
-    }
-    return snapshot;
-}
-
-function applySaveSnapshotToLocalStorage(snapshot) {
-    if (!snapshot || !snapshot.payload) throw new Error("存档内容不完整。");
-    const p = snapshot.payload;
-    if (typeof p.playerData !== "string" || typeof p.dungeonData !== "string" || typeof p.enemyData !== "string") {
-        throw new Error("存档字段类型异常。");
-    }
-    localStorage.setItem("playerData", p.playerData);
-    localStorage.setItem("dungeonData", p.dungeonData);
-    localStorage.setItem("enemyData", p.enemyData);
-}
-
-function showCultivationIntroScreen(onContinue) {
-    // 仅用于“首次/未分配先天点数”的封面页，不提供按钮，点击任意处继续
-    const root = document.querySelector("#dungeon-main");
-    if (root) root.style.filter = "brightness(50%)";
-    defaultModalElement.style.display = "flex";
-    defaultModalElement.classList.add("modal-container--intro");
-    defaultModalElement.innerHTML = `
-    <div class="intro-screen" id="intro-screen" role="dialog" aria-label="修仙序章">
-        <div class="intro-screen__inner">
-            <div class="intro-hero" aria-hidden="true">
-                <div class="intro-hero__bg"></div>
-                <div class="intro-hero__frame">
-                    <img class="intro-hero__img" src="assets/img/xiu.png" alt="洞天劫印记"
-                        onerror="this.onerror=null;this.src='assets/img/duotianjie-sigil.svg';" />
-                </div>
-            </div>
-            <h2 class="intro-screen__title">洞天劫</h2>
-            <p class="intro-screen__sub">踏上你的长生之路</p>
-            <div class="intro-screen__divider" aria-hidden="true"></div>
-            <p class="intro-screen__lore">一念入道，百劫成仙。今以先天为骨，择一脉为心。</p>
-            <p class="intro-screen__lore intro-screen__lore--em">自此步入洞天，问鼎长生。</p>
-            <p class="intro-screen__hint">点击任意处继续</p>
-        </div>
-    </div>`;
-
-    const el = document.querySelector("#intro-screen");
-    let done = false;
-    const finish = () => {
-        if (done) return;
-        done = true;
-        try {
-            defaultModalElement.classList.remove("modal-container--intro");
-            defaultModalElement.style.display = "none";
-            defaultModalElement.innerHTML = "";
-        } catch (e) {}
-        if (root) root.style.filter = "brightness(50%)"; // 继续进入分配面板时仍需暗背景
-        if (typeof onContinue === "function") onContinue();
-    };
-    if (el) {
-        el.addEventListener("click", finish, { once: true });
-        el.addEventListener("touchend", finish, { once: true });
-        el.addEventListener("keydown", function (ev) {
-            if (ev.key === "Enter" || ev.key === " " || ev.key === "Escape") finish();
-        });
-        el.tabIndex = 0;
-        el.focus();
-    } else {
-        finish();
-    }
-}
+var ATK_SPD_SOFT_CAP = 0.83;
+var ATK_SPD_OVER_SOFT_CAP_MULT = 0.1;
+var EQUIP_HP_FLAT_OPPORTUNITY_FRAC = 10;
+var EQUIP_ATK_FLAT_OPPORTUNITY_FRAC = 1;
+var EQUIP_DEF_FLAT_OPPORTUNITY_FRAC = 1;
 
 // Calculate every player stat
 const calculateStats = () => {
@@ -908,6 +1572,10 @@ const calculateStats = () => {
     player.equipmentSetBonusStats = eqSetBonus;
 
     let equipmentAtkSpd = player.baseStats.atkSpd * (player.equippedStats.atkSpd / 100);
+    var gemB =
+        typeof getGemBonusLikePet === "function"
+            ? getGemBonusLikePet()
+            : { hp: 0, atk: 0, def: 0, atkSpd: 0, vamp: 0, critRate: 0, critDmg: 0 };
     let playerHpBase = player.baseStats.hp;
     let playerAtkBase = player.baseStats.atk;
     let playerDefBase = player.baseStats.def;
@@ -945,28 +1613,91 @@ const calculateStats = () => {
         petB = getActivePetBonusStats();
     }
 
+    var titleB =
+        typeof aggregateTitleBonuses === "function"
+            ? aggregateTitleBonuses()
+            : { hp: 0, atk: 0, def: 0, atkSpd: 0, vamp: 0, critRate: 0, critDmg: 0 };
+
+    var hpFlatOppFrac =
+        typeof EQUIP_HP_FLAT_OPPORTUNITY_FRAC === "number" && isFinite(EQUIP_HP_FLAT_OPPORTUNITY_FRAC)
+            ? EQUIP_HP_FLAT_OPPORTUNITY_FRAC
+            : 10;
+    var atkFlatOppFrac =
+        typeof EQUIP_ATK_FLAT_OPPORTUNITY_FRAC === "number" && isFinite(EQUIP_ATK_FLAT_OPPORTUNITY_FRAC)
+            ? EQUIP_ATK_FLAT_OPPORTUNITY_FRAC
+            : 1;
+    var defFlatOppFrac =
+        typeof EQUIP_DEF_FLAT_OPPORTUNITY_FRAC === "number" && isFinite(EQUIP_DEF_FLAT_OPPORTUNITY_FRAC)
+            ? EQUIP_DEF_FLAT_OPPORTUNITY_FRAC
+            : 1;
+    var hpPctTotal =
+        player.bonusStats.hp + pb.hpPct + eqSetBonus.hp + petB.hp + gemB.hp + titleB.hp;
+    var atkPctTotal =
+        player.bonusStats.atk + pb.atkPct + eqSetBonus.atk + petB.atk + gemB.atk + titleB.atk;
+    var defPctTotal =
+        player.bonusStats.def + pb.defPct + eqSetBonus.def + petB.def + gemB.def + titleB.def;
+    var hpEquipMult = 1 + (hpPctTotal * hpFlatOppFrac) / 100;
+    var atkEquipMult = 1 + (atkPctTotal * atkFlatOppFrac) / 100;
+    var defEquipMult = 1 + (defPctTotal * defFlatOppFrac) / 100;
+
     player.stats.hpMax = Math.round(
-        (playerHpBase + playerHpBase * ((player.bonusStats.hp + pb.hpPct + eqSetBonus.hp + petB.hp) / 100)) + player.equippedStats.hp + (pb.flatHp || 0)
+        (playerHpBase + playerHpBase * (hpPctTotal / 100)) +
+            player.equippedStats.hp * hpEquipMult +
+            (pb.flatHp || 0)
     );
     var atkBeforeSectWeapon =
-        (atkCore + atkCore * ((player.bonusStats.atk + pb.atkPct + eqSetBonus.atk + petB.atk) / 100)) + player.equippedStats.atk + (pb.flatAtk || 0);
+        (atkCore + atkCore * (atkPctTotal / 100)) +
+        player.equippedStats.atk * atkEquipMult +
+        (pb.flatAtk || 0);
     player.stats.atk = Math.round(atkBeforeSectWeapon * (1 + sectWeaponAtkPct / 100));
     player.stats.def = Math.round(
-        (playerDefBase + playerDefBase * ((player.bonusStats.def + pb.defPct + eqSetBonus.def + petB.def) / 100)) + player.equippedStats.def + (pb.flatDef || 0)
+        (playerDefBase + playerDefBase * (defPctTotal / 100)) +
+            player.equippedStats.def * defEquipMult +
+            (pb.flatDef || 0)
     );
-    player.stats.atkSpd =
-        (atkSpdCore + atkSpdCore * ((player.bonusStats.atkSpd + pb.atkSpdPct + eqSetBonus.atkSpd + petB.atkSpd) / 100)) +
+    var atkSpdRaw =
+        (atkSpdCore +
+            atkSpdCore * ((player.bonusStats.atkSpd + pb.atkSpdPct + eqSetBonus.atkSpd + petB.atkSpd + gemB.atkSpd + titleB.atkSpd) / 100)) +
         equipmentAtkSpd +
         (equipmentAtkSpd * (player.equippedStats.atkSpd / 100));
-    player.stats.vamp = playerVampBase + player.bonusStats.vamp + player.equippedStats.vamp + pb.vamp + eqSetBonus.vamp + petB.vamp;
-    player.stats.critRate = playerCRateBase + player.bonusStats.critRate + player.equippedStats.critRate + pb.critRate + eqSetBonus.critRate + petB.critRate;
-    player.stats.critDmg = playerCDmgBase + player.bonusStats.critDmg + player.equippedStats.critDmg + pb.critDmg + eqSetBonus.critDmg + petB.critDmg;
+    var capAsp = typeof ATK_SPD_SOFT_CAP === "number" && isFinite(ATK_SPD_SOFT_CAP) ? ATK_SPD_SOFT_CAP : 0.83;
+    var overMult =
+        typeof ATK_SPD_OVER_SOFT_CAP_MULT === "number" && isFinite(ATK_SPD_OVER_SOFT_CAP_MULT)
+            ? Math.max(0, ATK_SPD_OVER_SOFT_CAP_MULT)
+            : 0.1;
+    player.stats.atkSpd =
+        atkSpdRaw <= capAsp ? atkSpdRaw : capAsp + (atkSpdRaw - capAsp) * overMult;
+    player.stats.vamp =
+        playerVampBase +
+        player.bonusStats.vamp +
+        player.equippedStats.vamp +
+        pb.vamp +
+        eqSetBonus.vamp +
+        petB.vamp +
+        titleB.vamp;
+    player.stats.critRate =
+        playerCRateBase +
+        player.bonusStats.critRate +
+        player.equippedStats.critRate +
+        pb.critRate +
+        eqSetBonus.critRate +
+        petB.critRate +
+        titleB.critRate;
+    player.stats.critDmg =
+        playerCDmgBase +
+        player.bonusStats.critDmg +
+        player.equippedStats.critDmg +
+        pb.critDmg +
+        eqSetBonus.critDmg +
+        petB.critDmg +
+        gemB.critDmg +
+        titleB.critDmg;
 
     // Caps attack speed to 2.5
     if (player.stats.atkSpd > 2.5) {
         player.stats.atkSpd = 2.5;
     }
-    var aspMult = typeof PLAYER_ATKSPD_EFFECT_MULT === "number" ? PLAYER_ATKSPD_EFFECT_MULT : 1;
+    var aspMult = typeof getPlayerAtkSpdEffectMult === "function" ? getPlayerAtkSpdEffectMult() : 1;
     if (aspMult > 0 && aspMult !== 1) {
         player.stats.atkSpd *= aspMult;
         if (player.stats.atkSpd < 0.06) {
@@ -1004,6 +1735,7 @@ const progressReset = () => {
         player.tempStats.atkSpd = 0;
     }
     player.inCombat = false;
+    if (typeof window.clearCombatTimerSyncOnly === "function") window.clearCombatTimerSyncOnly();
     dungeon.progress.floor = 1;
     dungeon.progress.room = 1;
     dungeon.statistics.kills = 0;
@@ -1016,9 +1748,10 @@ const progressReset = () => {
         enemyBaseLvl: 1,
         enemyLvlGap: 5,
         enemyBaseStats: 1,
-        enemyScaling: 1.1,
+        enemyScaling: 1.12,
         deferredEvent: null,
-        eventMemory: { faction: 0, ledger: 0 },
+        eventMemory: { faction: 0, ledger: 0, bondSoul: 0 },
+        bondSoulSaga: null,
         chainTitleBuff: null,
     };
     delete dungeon.enemyMultipliers;
@@ -1027,7 +1760,11 @@ const progressReset = () => {
     dungeon.action = 0;
     dungeon.statistics.runtime = 0;
     combatBacklog.length = 0;
+
+    if (typeof dongtianResetSameRoomPlayerExpDecay === "function") dongtianResetSameRoomPlayerExpDecay();
+
     if (typeof ensurePlayerPetCollection === "function") ensurePlayerPetCollection();
+
     if (typeof resetDungeonCombatSideFlags === "function") resetDungeonCombatSideFlags();
     if (typeof restartDungeonHubTimers === "function") restartDungeonHubTimers();
     saveData();
@@ -1046,16 +1783,15 @@ const allocationPopup = () => {
             hp: 50 * allocation.hp,
             atk: 10 * allocation.atk,
             def: 10 * allocation.def,
-            atkSpd: 0.33 + (0.02 * (allocation.atkSpd - 5))
+            atkSpd: 0.11 + (0.005 * (allocation.atkSpd - 5))
         }
     }
     updateStats();
     let points = 10;
     const statLabelZh = { hp: "气血", atk: "力道", def: "护体", atkSpd: "身法" };
     const rxFmt = /\.0+$|(\.[0-9]*[1-9])0+$/;
-    /** 与 calculateStats 一致：身法实效 = 先天基数 × PLAYER_ATKSPD_EFFECT_MULT，下限 0.06 */
     const allocAtkSpdDisplayValue = function (baseAtkSpd) {
-        var mult = typeof PLAYER_ATKSPD_EFFECT_MULT === "number" ? PLAYER_ATKSPD_EFFECT_MULT : 1;
+        var mult = typeof getPlayerAtkSpdEffectMult === "function" ? getPlayerAtkSpdEffectMult() : 1;
         var v = baseAtkSpd * mult;
         if (mult > 0 && mult !== 1 && v < 0.06) v = 0.06;
         return v;
@@ -1093,7 +1829,6 @@ const allocationPopup = () => {
                     <h3>塑道本源</h3>
                     <p class="allocate-sheet__sub">分配先天点数，择一派入世</p>
                 </div>
-                <button type="button" class="allocate-sheet__close" id="allocate-close" aria-label="关闭"><i class="fa fa-xmark"></i></button>
             </div>
             <div class="allocate-stats-grid">
                 <div class="allocate-stat-row">
@@ -1215,7 +1950,6 @@ const allocationPopup = () => {
     // Operation Buttons
     let confirm = document.querySelector("#allocate-confirm");
     let reset = document.querySelector("#allocate-reset");
-    let close = document.querySelector("#allocate-close");
     confirm.onclick = function () {
         // Set allocated stats to player base stats
         player.baseStats = {
@@ -1275,12 +2009,6 @@ const allocationPopup = () => {
             sectDescEl.innerHTML = formatAllocateSectDescHtml(SECT_LIST[0]);
         }
     }
-    close.onclick = function () {
-        defaultModalElement.style.display = "none";
-        defaultModalElement.classList.remove("modal-container--allocate");
-        defaultModalElement.innerHTML = "";
-        document.querySelector("#dungeon-main").style.filter = "brightness(100%)";
-    }
 }
 
 const objectValidation = () => {
@@ -1335,6 +2063,11 @@ const objectValidation = () => {
         player.tempStats = {};
         player.tempStats.atk = 0;
         player.tempStats.atkSpd = 0;
+    }
+    if (typeof player.petExpDoubleCombatsRemaining !== "number" || isNaN(player.petExpDoubleCombatsRemaining)) {
+        player.petExpDoubleCombatsRemaining = 0;
+    } else {
+        player.petExpDoubleCombatsRemaining = Math.max(0, Math.floor(player.petExpDoubleCombatsRemaining));
     }
     saveData();
 }

@@ -1,4 +1,4 @@
-// 英文字符串 → 中文（供界面替换脚本使用）
+
 var cnItems = {
     _OTHER_: [],
 
@@ -34,7 +34,7 @@ var cnItems = {
 }
 
 
-//需处理的前缀
+
 var cnPrefix = {
     "Common": "凡尘器",
     "Uncommon": "蕴灵胚",
@@ -85,7 +85,7 @@ var cnPrefix = {
     "": "",
 }
 
-//需处理的后缀
+
 var cnPostfix = {
     "(Paladin's Heart)": "(圣誓心壁)",
     "(Remnant Razor)": "(残墟斩痕)",
@@ -113,7 +113,7 @@ var cnPostfix = {
     "": "",
 }
 
-//需排除的，正则匹配
+
 var cnExcludeWhole = [
     /^x?\d+(\.\d+)?[A-Za-z%]{0,2}(\s.C)?\s*$/, //12.34K,23.4 °C
     /^x?\d+(\.\d+)?(e[+\-]?\d+)?\s*$/, //12.34e+4

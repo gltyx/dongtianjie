@@ -1,3 +1,4 @@
+// 根据 cnkey 词典在 DOM 中替换未硬编码的中文文案
 var CNITEM_DEBUG = 0;
 function cnItemByTag(text, itemgroup, node, textori){
 	for (let i in itemgroup){
@@ -52,6 +53,7 @@ var cnItem = function (text, node) {
     if (typeof (text) != "string")
         return text;
 	let textori = text;
+    //处理前缀
     let text_prefix = "";
     for (let prefix in cnPrefix) {
         if (text.substr(0, prefix.length) === prefix) {
@@ -59,6 +61,7 @@ var cnItem = function (text, node) {
             text = text.substr(prefix.length);
         }
     }
+    //处理后缀
     let text_postfix = "";
     for (let postfix in cnPostfix) {
         if (text.substr(-postfix.length) === postfix) {
@@ -66,6 +69,7 @@ var cnItem = function (text, node) {
             text = text.substr(0, text.length - postfix.length);
         }
     }
+    //处理正则后缀
     let text_reg_exclude_postfix = "";
     for (let reg of cnExcludePostfix) {
         let result = text.match(reg);
@@ -74,22 +78,27 @@ var cnItem = function (text, node) {
             text = text.substr(0, text.length - result[0].length);
         }
     }
-  
+
+    //检验字典是否可存
     if (!cnItems._OTHER_) cnItems._OTHER_ = [];
 
+    //检查是否排除
     for (let reg of cnExcludeWhole) {
         if (reg.test(text)) {
             return text_prefix + text + text_reg_exclude_postfix + text_postfix;;
         }
     }
 
+    //尝试正则替换
     for (let [key, value] of cnRegReplace.entries()) {
         if (key.test(text)) {
             return text_prefix + text.replace(key, value) + text_reg_exclude_postfix + text_postfix;
         }
     }
 
+    //遍历尝试匹配
     for (let i in cnItems) {
+        //字典已有词汇或译文、且译文不为空，则返回译文
         if (typeof(cnItems[i]) == "string" && (text == i || text == cnItems[i])){
 			return text_prefix + cnItems[i] + text_reg_exclude_postfix + text_postfix;
 		} else if ( typeof(cnItems[i]) == "object" && text == i ){
@@ -104,16 +113,20 @@ var cnItem = function (text, node) {
         }
     }
 
+    //调整收录的词条，0=收录原文，1=收录去除前后缀的文本
     let save_cfg = 1;
     let save_text = save_cfg ? text : textori;
+    //遍历生词表是否收录
     for (
         let i = 0; i < cnItems._OTHER_.length; i++
     ) {
+        //已收录则直接返回
         if (save_text == cnItems._OTHER_[i])
             return text_prefix + text + text_reg_exclude_postfix + text_postfix;
     }
 
     if (cnItems._OTHER_.length < 1000) {
+        //未收录则保存
         cnItems._OTHER_.push(save_text);
         cnItems._OTHER_.sort(
             function (a, b) {
@@ -124,6 +137,7 @@ var cnItem = function (text, node) {
 
     if (CNITEM_DEBUG) console.log("未匹配词条:", text);
 
+    //返回生词字串
     return text_prefix + text + text_reg_exclude_postfix + text_postfix;
 };
 

@@ -21,8 +21,29 @@ let enemy = {
     mechanic: null
 };
 
-/** 邪印（enemyScaling）对怪物面板加成的倍率；越大则同邪印等级下妖物越强 */
+
 var CURSE_ENEMY_STAT_MULTIPLIER = 2.8;
+/** 经验结算等级封顶：本层正常最高怪物等级（maxLvl）基础上再放宽 +5。 */
+var DUNGEON_EXP_REWARD_LVL_CAP_BONUS = 5;
+
+function getDungeonExpRewardLevelCapForCurrentFloor() {
+    if (typeof dungeon === "undefined" || !dungeon || !dungeon.progress || !dungeon.settings) return null;
+    var floor = Math.max(1, Math.floor(Number(dungeon.progress.floor) || 1));
+    var gap =
+        typeof dungeon.settings.enemyLvlGap === "number" && isFinite(dungeon.settings.enemyLvlGap)
+            ? Math.max(1, Math.floor(dungeon.settings.enemyLvlGap))
+            : 5;
+    var baseLvl =
+        typeof dungeon.settings.enemyBaseLvl === "number" && isFinite(dungeon.settings.enemyBaseLvl)
+            ? Math.floor(dungeon.settings.enemyBaseLvl)
+            : 1;
+    var maxLvl = floor * gap + (baseLvl - 1);
+    var bonus =
+        typeof DUNGEON_EXP_REWARD_LVL_CAP_BONUS === "number" && isFinite(DUNGEON_EXP_REWARD_LVL_CAP_BONUS)
+            ? Math.max(0, Math.floor(DUNGEON_EXP_REWARD_LVL_CAP_BONUS))
+            : 5;
+    return Math.max(1, maxLvl + bonus);
+}
 
 const generateRandomEnemy = (condition) => {
     const floorN = (dungeon && dungeon.progress && dungeon.progress.floor) ? dungeon.progress.floor : 1;
@@ -293,18 +314,31 @@ const setEnemyStats = (type, condition) => {
         }
     }
 
+    const f = Math.max(1, dungeon && dungeon.progress && typeof dungeon.progress.floor === "number" && !isNaN(dungeon.progress.floor) ? Math.floor(dungeon.progress.floor) : 1);
+
     // Apply stat scaling for enemies each level（邪印 via enemyScaling，由 CURSE_ENEMY_STAT_MULTIPLIER 放大）
-    // 让“邪印 Lvl=1”也产生极小增量：enemyScaling 初值约为 1.1 时，增量不为 0。
-    var curseDelta = Math.max(0, dungeon.settings.enemyScaling - 1.08) * CURSE_ENEMY_STAT_MULTIPLIER;
+    // 让“邪印 Lvl=1”也产生极小增量：enemyScaling 初值约为 1.12 时，增量不为 0。
+    var escImpact = typeof DUNGEON_ENEMY_SCALING_IMPACT === "number" && DUNGEON_ENEMY_SCALING_IMPACT > 0 ? DUNGEON_ENEMY_SCALING_IMPACT : 1;
+    var escRaw =
+        typeof dungeon.settings.enemyScaling === "number" && !isNaN(dungeon.settings.enemyScaling)
+            ? dungeon.settings.enemyScaling
+            : 1.12;
+    var escMonsterMin =
+        typeof getDungeonEnemyScalingMonsterFloorMinimum === "function"
+            ? getDungeonEnemyScalingMonsterFloorMinimum(f)
+            : typeof DUNGEON_ENEMY_SCALING_MONSTER_MIN === "number" && isFinite(DUNGEON_ENEMY_SCALING_MONSTER_MIN) && DUNGEON_ENEMY_SCALING_MONSTER_MIN > 0
+              ? DUNGEON_ENEMY_SCALING_MONSTER_MIN
+              : 1.12;
+    var escForMonster = Math.max(escMonsterMin, escRaw);
+    var curseDelta = Math.max(0, escForMonster - 1.08) * CURSE_ENEMY_STAT_MULTIPLIER * escImpact;
     for (const stat in enemy.stats) {
         if (["hpMax", "atk", "def"].includes(stat)) {
             enemy.stats[stat] += Math.round(enemy.stats[stat] * (curseDelta * enemy.lvl));
         } else if (["atkSpd"].includes(stat)) {
-            // 怪物攻速：1级邪印为初始值；2级邪印之后才开始“缓慢”增长
-            // 让“邪印 Lvl=1”（enemyScaling≈1.1）也开始产生极小增量：通过降低阈值控制增幅强度
-            const spdCurseDelta = Math.max(0, dungeon.settings.enemyScaling - 1.08) * CURSE_ENEMY_STAT_MULTIPLIER;
+
+            const spdCurseDelta = Math.max(0, escForMonster - 1.08) * CURSE_ENEMY_STAT_MULTIPLIER * escImpact;
             enemy.stats[stat] = 0.4;
-            // 2级邪印之后缓慢增长：通过分母控制增幅强度
+
             enemy.stats[stat] += enemy.stats[stat] * ((spdCurseDelta / 30) * enemy.lvl);
         } else if (["critRate"].includes(stat)) {
             enemy.stats[stat] += enemy.stats[stat] * ((curseDelta / 4) * enemy.lvl);
@@ -334,10 +368,8 @@ const setEnemyStats = (type, condition) => {
         enemy.stats.critDmg = enemy.stats.critDmg * 1.45;
     }
 
-    // 秘境层数：仅1层下调20%，2层及以后按 1.5x 递增
-    const f = Math.max(1, dungeon.progress.floor || 1);
     const depth = f - 1;
-    // 层1的 -20% 统一在后续 floorDifficultyMul 再次应用（对所有战力属性一致降档）。
+ 
     const floorOneNerf = 1;
     const minionMul = floorOneNerf * Math.pow(1.5, depth);
     let floorCombatMul = minionMul;
@@ -386,7 +418,7 @@ const setEnemyStats = (type, condition) => {
 
     var totalLootMul = affixLootMul * qualityLootMul;
 
-    // 秘境层1：只对“秘境探索”模式难度下降 20%（押镖/挖矿不受影响）
+ 
     const isEscortActive = typeof escort !== "undefined" && escort && escort.active;
     const isMiningActive = typeof mining !== "undefined" && mining && mining.active;
     const isExploringMode = !isEscortActive && !isMiningActive;
@@ -399,6 +431,18 @@ const setEnemyStats = (type, condition) => {
         enemy.stats.vamp = enemy.stats.vamp * floorDifficultyMul;
         enemy.stats.critRate = enemy.stats.critRate * floorDifficultyMul;
         enemy.stats.critDmg = enemy.stats.critDmg * floorDifficultyMul;
+    }
+
+
+    if (f === 20 && isExploringMode && (condition === "guardian" || condition === "sboss")) {
+        const floor20BossNerf = 0.8;
+        enemy.stats.hpMax = Math.max(1, Math.round(enemy.stats.hpMax * floor20BossNerf));
+        enemy.stats.atk = Math.max(1, Math.round(enemy.stats.atk * floor20BossNerf));
+        enemy.stats.def = Math.max(0, Math.round(enemy.stats.def * floor20BossNerf));
+        enemy.stats.atkSpd = Math.min(2.85, enemy.stats.atkSpd * floor20BossNerf);
+        enemy.stats.vamp = enemy.stats.vamp * floor20BossNerf;
+        enemy.stats.critRate = enemy.stats.critRate * floor20BossNerf;
+        enemy.stats.critDmg = enemy.stats.critDmg * floor20BossNerf;
     }
 
     // Calculate exp and gold that the monster gives
@@ -417,18 +461,30 @@ const setEnemyStats = (type, condition) => {
     }
 
     let expCalculation = (expYield.reduce((acc, cur) => acc + cur, 0)) / 20;
-    let expBase = Math.round((expCalculation + expCalculation * (enemy.lvl * 0.1)) * totalLootMul);
+    var expLvlCap = getDungeonExpRewardLevelCapForCurrentFloor();
+    var expLvlForReward =
+        expLvlCap == null
+            ? Math.max(1, Math.floor(Number(enemy.lvl) || 1))
+            : Math.min(Math.max(1, Math.floor(Number(enemy.lvl) || 1)), expLvlCap);
+    let expBase = Math.round((expCalculation + expCalculation * (expLvlForReward * 0.1)) * totalLootMul);
     if (expBase > 1000000) {
         expBase = Math.round(1000000 * randomizeDecimal(0.9, 1.1));
     }
-    /** 怪物修为掉落：在公式基数上约保留 15%（先减 70% 再减 50%）；灵石仍按原公式基数折算 */
+
     const MONSTER_EXP_DROP_MULT = 0.15;
     enemy.rewards.exp = Math.max(1, Math.round(expBase * MONSTER_EXP_DROP_MULT));
+    // 押镖 / 地脉采矿：击杀不计修为；灵石与掉落照旧（圆满结算也不再发感悟，见 endEscortRun）
+    if (isEscortActive || isMiningActive) {
+        enemy.rewards.exp = 0;
+    }
     enemy.rewards.gold = applyGoldGainMult(Math.round((expBase * randomizeDecimal(0.9, 1.1)) * 1.5));
     enemy.rewards.drop = randomizeNum(1, 3);
     if (enemy.rewards.drop == 1) {
         enemy.rewards.drop = true;
     } else {
+        enemy.rewards.drop = false;
+    }
+    if (condition === "chest") {
         enemy.rewards.drop = false;
     }
 

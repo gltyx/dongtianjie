@@ -1,13 +1,17 @@
-
+/**
+ * 灵宠栏：最多 20 只；出战 1 只提供机缘并入斗法协同攻击；掉落 / 修为 / 成长。
+ */
 
 var petModalOpen = false;
 
+/** 当前在面板中编辑的灵宠 id（仅 UI） */
 var petPanelFocusId = null;
 
 var PET_COLLECTION_MAX = 20;
 
 var PET_DROP_CHANCE = 0.01;
 
+/** 灵根 raw：每项基础值随层上升，且整体品质随层指数放大（不设上限） */
 var PET_ROOT_RAW_LO = 4;
 var PET_ROOT_BASE_SPAN = 42;
 var PET_ROOT_FLOOR_SPAN_PER = 0.65;
@@ -15,7 +19,11 @@ var PET_ROOT_MIN_SPAN = 22;
 var PET_ROOT_FLOOR_BASE_GAIN = 0.72;
 var PET_ROOT_FLOOR_QUALITY_EXP = 1.032;
 var PET_ROOT_VARIANCE_PCT = 0.2;
-
+/** 灵宠年份品质：
+ * - rootMult：在幼年基础上的五行灵根倍率
+ * - bonusMinPct / bonusMaxPct：斗法推演额外加成区间（百分比），按档随机
+ *   幼年：0-10%，十年：5-20%，百年：10-30%，千年：20-40%，万年：30-50%，十万年：40-60%
+ */
 var PET_AGE_TIERS = [
     { id: "young", name: "幼年", chance: 0.9189, rootMult: 1.0, bonusMinPct: 0, bonusMaxPct: 10 },
     { id: "10y", name: "十年", chance: 0.05, rootMult: 1.1, bonusMinPct: 5, bonusMaxPct: 20 },
@@ -25,13 +33,63 @@ var PET_AGE_TIERS = [
     { id: "100000y", name: "十万年", chance: 0.0001, rootMult: 1.5, bonusMinPct: 40, bonusMaxPct: 60 }
 ];
 
-
+/** 主人修为按此比例给【出战】灵宠（仅击杀战斗怪物、经 playerExpGain 分流时生效；奇遇等不加灵宠经验） */
 var PET_EXP_SHARE_FROM_PLAYER = 0.27;
-
+/** 灵宠整体强度倍率（并入人物机缘 + 斗法推演基础） */
 var PET_GLOBAL_POWER_MULT = 1.5;
+/** 「机缘加成」并入人物与面板展示再乘（3 = 相对原机缘数值三倍） */
+var PET_OPPORTUNITY_BONUS_MULT = 3;
+/** 「斗法推演」最终出手参数再乘（1.5 = 在现算式结果上再提升 0.5 倍） */
+var PET_COMBAT_DEDUCTION_MULT = 1.5;
+
+/** 洞天劫：出战灵宠境界上限 — 历史最高等级 + 10（maxDungeonFloorLvl，缺省同当前修为） */
+function getPlayerDongtianHistLevelForPetDeploy() {
+    if (typeof player === "undefined" || !player) return 1;
+    var h =
+        typeof player.maxDungeonFloorLvl === "number" && !isNaN(player.maxDungeonFloorLvl)
+            ? Math.floor(player.maxDungeonFloorLvl)
+            : Math.floor(typeof player.lvl === "number" && !isNaN(player.lvl) ? player.lvl : 1);
+    return Math.max(1, h);
+}
+
+function getMaxDeployPetLevel() {
+    return getPlayerDongtianHistLevelForPetDeploy() + 10;
+}
+
+function isPetDeployLevelAllowed(pet) {
+    if (!pet) return false;
+    var petLvlRaw = typeof pet.lvl === "number" ? pet.lvl : Number(pet.lvl);
+    var petLvl = Math.max(1, Math.floor(isFinite(petLvlRaw) ? petLvlRaw : 1));
+    return petLvl <= getMaxDeployPetLevel();
+}
+
+/**
+ * 若当前出战灵宠境界超过「历史最高 + 10」，自动卸下（不出战）。
+ * @returns {boolean} 是否发生了卸下
+ */
+function enforceActivePetDeployLevelLimit() {
+    if (typeof player === "undefined" || !player || !Array.isArray(player.petCollection)) return false;
+    var aid = player.activePetId;
+    if (!aid) return false;
+    var pet = null;
+    for (var i = 0; i < player.petCollection.length; i++) {
+        if (player.petCollection[i] && player.petCollection[i].id === aid) {
+            pet = player.petCollection[i];
+            break;
+        }
+    }
+    if (!pet) return false;
+    if (isPetDeployLevelAllowed(pet)) return false;
+    player.activePetId = null;
+    if (typeof saveData === "function") saveData();
+    if (typeof calculateStats === "function") calculateStats();
+    if (typeof playerLoadStats === "function") playerLoadStats();
+    return true;
+}
 
 var PET_EXP_BASE_MAX = 172;
 
+/** 妖力：用于推动灵宠年份进阶（幼年→十年→百年→千年→万年→十万年） */
 var PET_YAOLI_REQ_TO_NEXT_BY_TIER_ID = {
     young: 100,
     "10y": 500,
@@ -82,6 +140,7 @@ function applyPetAgeTierUpgrade(pet, nextTierId) {
     var curDef = getPetAgeTierDef(pet.ageTier);
     var nextDef = getPetAgeTierDef(nextTierId);
     if (!nextDef || !nextDef.id || nextDef.id === pet.ageTier) return false;
+    // 年份提升五行：按 rootMult 的“相对倍率”补偿（避免重复按幼年倍率）
     var curM = curDef && typeof curDef.rootMult === "number" && isFinite(curDef.rootMult) && curDef.rootMult > 0 ? curDef.rootMult : 1;
     var nextM = typeof nextDef.rootMult === "number" && isFinite(nextDef.rootMult) && nextDef.rootMult > 0 ? nextDef.rootMult : curM;
     var ratio = nextM / curM;
@@ -133,7 +192,9 @@ function getPetExpMaxIncrease(curMax) {
     return Math.floor(curMax * 0.152 + 188);
 }
 
+/** 灵宠悟性：整体难度 = 原设计 × 此倍率（约 2 倍更难） */
 var PET_EXP_DIFFICULTY_BASE_MULT = 2;
+/** 每高 1 级，悟性门槛再乘 (1 + 此系数 × (等级−1))；系数越大高等级越陡 */
 var PET_EXP_DIFFICULTY_PER_LEVEL = 0.065;
 
 function getPetExpDifficultyMult(lvl) {
@@ -141,6 +202,7 @@ function getPetExpDifficultyMult(lvl) {
     return PET_EXP_DIFFICULTY_BASE_MULT * (1 + (lvl - 1) * PET_EXP_DIFFICULTY_PER_LEVEL);
 }
 
+/** 当前境界下单级悟性需求（升级后按当前等级重新计） */
 function getPetExpRequired(pet) {
     if (!pet || !pet.exp) return PET_EXP_BASE_MAX;
     normalizePetObject(pet);
@@ -149,6 +211,7 @@ function getPetExpRequired(pet) {
     return Math.max(1, Math.floor(baseReq * getPetExpDifficultyMult(lvl)));
 }
 
+/** 面板「+」展示：下一档设计增量 × 当前等级难度 */
 function getPetExpNextGrowDisplay(pet) {
     normalizePetObject(pet);
     var inc = getPetExpMaxIncrease(pet.exp.expMax);
@@ -185,13 +248,15 @@ var PET_ROOT_WEIGHT_BY_STAT = {
     critDmg: { metal: 0.22, wood: 0.06, water: 0.08, fire: 0.52, earth: 0.12 }
 };
 
+/** 相对平衡型 1.0 的机缘成长倍率；强弱项相对初版表拉开约 88%（1±|Δ|×1.88） */
 var PET_TYPE_GROWTH_MULT = {
-    attack: { hp: 0.74, atk: 1.36, def: 0.8, atkSpd: 1.08, vamp: 1.02, critRate: 1.2, critDmg: 1.22 },
-    defense: { hp: 1.24, atk: 0.78, def: 1.36, atkSpd: 0.94, vamp: 1.02, critRate: 0.88, critDmg: 0.88 },
-    stamina: { hp: 1.5, atk: 0.84, def: 1.12, atkSpd: 0.94, vamp: 1.06, critRate: 0.9, critDmg: 0.86 },
+    attack: { hp: 0.51, atk: 1.68, def: 0.62, atkSpd: 1.15, vamp: 1.04, critRate: 1.38, critDmg: 1.41 },
+    defense: { hp: 1.45, atk: 0.59, def: 1.68, atkSpd: 0.89, vamp: 1.04, critRate: 0.77, critDmg: 0.77 },
+    stamina: { hp: 1.94, atk: 0.7, def: 1.23, atkSpd: 0.89, vamp: 1.11, critRate: 0.81, critDmg: 0.74 },
     balanced: { hp: 1, atk: 1, def: 1, atkSpd: 1, vamp: 1, critRate: 1, critDmg: 1 }
 };
 
+/** 随机灵兽名（两字/三字组合，量足） */
 var PET_NAME_PARTS_A = [
     "墨", "玄", "青", "赤", "苍", "银", "金", "幽", "炎", "霜", "雷", "风", "云", "月", "星", "玉", "雪", "焰", "璃", "魄",
     "噬", "裂", "渊", "穹", "澜", "霄", "冥", "曜", "绫", "珀", "蛟", "鸾", "鲤", "鹏", "麒", "饕", "狰", "魈", "魍", "貅",
@@ -256,6 +321,60 @@ function getPetDropFloorForRoll() {
     return 1;
 }
 
+/**
+ * 秘境层数对应的「修为不宜过高」阈限：第 1 层 16，第 2 层 21，之后每层 +5。
+ * 超过则出战灵宠并入人物的机缘按 -99999% 计（见 getActivePetBonusStats）。
+ */
+function getDungeonFloorPetOpportunityLevelCap(floor) {
+    floor = Math.max(1, Math.floor(Number(floor) || 1));
+    return 15 + (floor - 1) * 5;
+}
+
+function getCurrentDungeonFloorForPetOpportunityRule() {
+    if (typeof dungeon !== "undefined" && dungeon && dungeon.progress && typeof dungeon.progress.floor === "number") {
+        return Math.max(1, Math.floor(dungeon.progress.floor));
+    }
+    return 1;
+}
+
+/** 当前修为是否超出本秘境层机缘阈限（超过则压制出战灵宠机缘） */
+function isPlayerLevelOverPetOpportunityCapForCurrentFloor() {
+    if (typeof player === "undefined" || !player) return false;
+    var cap = getDungeonFloorPetOpportunityLevelCap(getCurrentDungeonFloorForPetOpportunityRule());
+    var pl = typeof player.lvl === "number" && !isNaN(player.lvl) ? Math.floor(player.lvl) : 1;
+    return pl > cap;
+}
+
+/** 灵宠面板展示用机缘数值（出战且压制时与并入人物一致，显示为 -99999%） */
+function getPetBonusStatsDisplayForPanel(pet) {
+    if (!pet || !pet.bonusStats) {
+        return { hp: 0, atk: 0, def: 0, atkSpd: 0, vamp: 0, critRate: 0, critDmg: 0 };
+    }
+    var b = pet.bonusStats;
+    if (
+        typeof player !== "undefined" &&
+        player &&
+        player.activePetId === pet.id &&
+        isPlayerLevelOverPetOpportunityCapForCurrentFloor()
+    ) {
+        var P = -99999;
+        return { hp: P, atk: P, def: P, atkSpd: P, vamp: P, critRate: P, critDmg: P };
+    }
+    var om =
+        typeof PET_OPPORTUNITY_BONUS_MULT === "number" && isFinite(PET_OPPORTUNITY_BONUS_MULT) && PET_OPPORTUNITY_BONUS_MULT > 0
+            ? PET_OPPORTUNITY_BONUS_MULT
+            : 3;
+    return {
+        hp: (b.hp || 0) * om,
+        atk: (b.atk || 0) * om,
+        def: (b.def || 0) * om,
+        atkSpd: (b.atkSpd || 0) * om,
+        vamp: (b.vamp || 0) * om,
+        critRate: (b.critRate || 0) * om,
+        critDmg: (b.critDmg || 0) * om
+    };
+}
+
 function rollPetRoots(floorOpt) {
     var floor = typeof floorOpt === "number" && floorOpt >= 1 ? Math.floor(floorOpt) : 1;
     var span = PET_ROOT_BASE_SPAN + (floor - 1) * PET_ROOT_FLOOR_SPAN_PER;
@@ -266,6 +385,7 @@ function rollPetRoots(floorOpt) {
         var k = PET_ROOT_KEYS[i];
         var rawVal = PET_ROOT_RAW_LO + floor * PET_ROOT_FLOOR_BASE_GAIN + Math.random() * span;
         var varianceMul = 1 + ((Math.random() * 2 - 1) * PET_ROOT_VARIANCE_PCT); // 0.8 ~ 1.2
+        // 高层灵根整体更高，且无硬上限
         out[k] = Math.max(8, Math.round(rawVal * qualityMul * varianceMul));
     }
     return out;
@@ -324,7 +444,9 @@ function createNewPetState(typeId, roots, nameOpt, ageTierId) {
         name: nameOpt || pickRandomPetName(),
         type: typeId,
         ageTier: ageDef.id,
+        /** 斗法推演额外加成（百分比），按年份档随机一次固化在此 */
         ageBonusPct: ageBonusPct,
+        /** 妖力：以天赋果喂养等方式累积，用于年份进阶 */
         yaoli: 0,
         roots: finalRoots,
         lvl: 1,
@@ -369,6 +491,7 @@ function ensurePlayerPetCollection() {
     if (player.activePetId && typeof getPetById === "function" && !getPetById(player.activePetId)) {
         player.activePetId = player.petCollection.length ? player.petCollection[0].id : null;
     }
+    enforceActivePetDeployLevelLimit();
 }
 
 function getPetById(id) {
@@ -385,20 +508,30 @@ function getActivePet() {
 }
 
 function getActivePetBonusStats() {
+    if (isPlayerLevelOverPetOpportunityCapForCurrentFloor()) {
+        var P = -99999;
+        return { hp: P, atk: P, def: P, atkSpd: P, vamp: P, critRate: P, critDmg: P };
+    }
     var pet = getActivePet();
     if (!pet) {
         return { hp: 0, atk: 0, def: 0, atkSpd: 0, vamp: 0, critRate: 0, critDmg: 0 };
     }
     normalizePetObject(pet);
     var b = pet.bonusStats || { hp: 0, atk: 0, def: 0, atkSpd: 0, vamp: 0, critRate: 0, critDmg: 0 };
+    var om =
+        typeof PET_OPPORTUNITY_BONUS_MULT === "number" && isFinite(PET_OPPORTUNITY_BONUS_MULT) && PET_OPPORTUNITY_BONUS_MULT > 0
+            ? PET_OPPORTUNITY_BONUS_MULT
+            : 3;
+    var g = typeof PET_GLOBAL_POWER_MULT === "number" && isFinite(PET_GLOBAL_POWER_MULT) ? PET_GLOBAL_POWER_MULT : 1.5;
+    var merge = g * om;
     return {
-        hp: (b.hp || 0) * PET_GLOBAL_POWER_MULT,
-        atk: (b.atk || 0) * PET_GLOBAL_POWER_MULT,
-        def: (b.def || 0) * PET_GLOBAL_POWER_MULT,
-        atkSpd: (b.atkSpd || 0) * PET_GLOBAL_POWER_MULT,
-        vamp: (b.vamp || 0) * PET_GLOBAL_POWER_MULT,
-        critRate: (b.critRate || 0) * PET_GLOBAL_POWER_MULT,
-        critDmg: (b.critDmg || 0) * PET_GLOBAL_POWER_MULT
+        hp: (b.hp || 0) * merge,
+        atk: (b.atk || 0) * merge,
+        def: (b.def || 0) * merge,
+        atkSpd: (b.atkSpd || 0) * merge,
+        vamp: (b.vamp || 0) * merge,
+        critRate: (b.critRate || 0) * merge,
+        critDmg: (b.critDmg || 0) * merge
     };
 }
 
@@ -406,7 +539,33 @@ function setActivePetId(id) {
     ensurePlayerPetCollection();
     if (!id) {
         player.activePetId = null;
-    } else if (getPetById(id)) {
+    } else {
+        var target = getPetById(id);
+        if (!target) return;
+        if (!isPetDeployLevelAllowed(target)) {
+            var cap = getMaxDeployPetLevel();
+            var lr =
+                typeof target.lvl === "number" ? target.lvl : Number(target.lvl);
+            var lv = Math.max(1, Math.floor(isFinite(lr) ? lr : 1));
+            if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
+                defaultModalElement.style.display = "flex";
+                defaultModalElement.innerHTML =
+                    '<div class="content"><p>无法出战：该灵兽为 ' +
+                    lv +
+                    " 级，超出上限 " +
+                    cap +
+                    "（历史最高等级 + 10）。</p>" +
+                    '<div class="button-container"><button type="button" id="pet-deploy-limit-ok">知晓</button></div></div>';
+                var pok = document.querySelector("#pet-deploy-limit-ok");
+                if (pok) {
+                    pok.onclick = function () {
+                        defaultModalElement.style.display = "none";
+                        defaultModalElement.innerHTML = "";
+                    };
+                }
+            }
+            return;
+        }
         player.activePetId = id;
     }
     if (typeof saveData === "function") saveData();
@@ -457,6 +616,7 @@ function normalizePetObject(p) {
     rebuildPetBonusStats(p);
 }
 
+/** 单层机缘成长（随类型与灵根） */
 function addOnePetGrowthTick(pet) {
     if (!pet || !pet.bonusStats) return;
     var roots = pet.roots;
@@ -471,6 +631,7 @@ function addOnePetGrowthTick(pet) {
     b.critDmg += (0.5 / 3) * (tm.critDmg || 1) * petRootAptitudeMult("critDmg", roots);
 }
 
+/** 按当前境界层数重算机缘（每层叠一层；炼气 1 层也有基础机缘） */
 function rebuildPetBonusStats(pet) {
     if (!pet) return;
     pet.bonusStats = { hp: 0, atk: 0, def: 0, atkSpd: 0, vamp: 0, critRate: 0, critDmg: 0 };
@@ -496,17 +657,32 @@ function petLvlUpFor(pet) {
     normalizePetObject(pet);
 }
 
-function addPetExp(amount) {
+function addPetExp(amount, fromMonsterKill) {
+    if (fromMonsterKill !== true) return;
     if (!amount || amount < 0) return;
     ensurePlayerPetCollection();
     var pet = getActivePet();
     if (!pet) return;
-    var playerLvl = typeof player !== "undefined" && player && typeof player.lvl === "number" ? player.lvl : 1;
-    if (pet.lvl > playerLvl + 10) return;
+    var histLvl = getPlayerDongtianHistLevelForPetDeploy();
+    var capLvl = histLvl + 10;
+    // 已达出战境界上限则不再吸收修为（原先仅用「>」且 while 内不校验，单笔大额经验可连升多级突破上限）
+    if (pet.lvl >= capLvl) return;
     normalizePetObject(pet);
-    pet.exp.expCurr += amount;
-    pet.exp.expCurrLvl += amount;
-    while (pet.exp.expCurrLvl >= getPetExpRequired(pet)) {
+    var grant = Math.max(0, Math.floor(amount));
+    if (grant < 1) return;
+    if (typeof player !== "undefined" && player) {
+        var rem =
+            typeof player.petExpDoubleCombatsRemaining === "number" && !isNaN(player.petExpDoubleCombatsRemaining)
+                ? Math.max(0, Math.floor(player.petExpDoubleCombatsRemaining))
+                : 0;
+        if (rem > 0) {
+            grant = Math.max(0, Math.floor(amount * 2));
+            player.petExpDoubleCombatsRemaining = rem - 1;
+        }
+    }
+    pet.exp.expCurr += grant;
+    pet.exp.expCurrLvl += grant;
+    while (pet.exp.expCurrLvl >= getPetExpRequired(pet) && pet.lvl < capLvl) {
         pet.exp.expCurrLvl -= getPetExpRequired(pet);
         petLvlUpFor(pet);
     }
@@ -549,11 +725,22 @@ function tryRollPetDrop(context) {
     return true;
 }
 
+/** 斗法用：依人物面板与灵宠境界/机缘推导出招参数（可指定任意栏内灵宠用于面板预览） */
 function getPetCombatStatsForPet(pet) {
     if (!pet || typeof player === "undefined" || !player || !player.stats) return null;
     normalizePetObject(pet);
     var lv = Math.max(1, pet.lvl);
-    var bs = pet.bonusStats;
+    if (player.activePetId === pet.id && isPlayerLevelOverPetOpportunityCapForCurrentFloor()) {
+        return {
+            atk: 1,
+            atkSpd: 0.07,
+            critRate: 0,
+            critDmg: 1,
+            vamp: 0,
+            name: pet.name
+        };
+    }
+    var bs = pet.bonusStats || {};
     var ageDef = getPetAgeTierDef(pet.ageTier);
     var ageBonusPct = typeof pet.ageBonusPct === "number"
         ? pet.ageBonusPct
@@ -568,12 +755,16 @@ function getPetCombatStatsForPet(pet) {
     var critRate = Math.min(90, (player.stats.critRate * 0.5 + (bs.critRate || 0) * 0.75) * PET_GLOBAL_POWER_MULT * ageMult);
     var critDmg = (player.stats.critDmg * 0.46 + (bs.critDmg || 0) * 0.82) * PET_GLOBAL_POWER_MULT * ageMult;
     var vamp = (player.stats.vamp * 0.33 + (bs.vamp || 0) * 0.52) * PET_GLOBAL_POWER_MULT * ageMult;
+    var cd =
+        typeof PET_COMBAT_DEDUCTION_MULT === "number" && isFinite(PET_COMBAT_DEDUCTION_MULT) && PET_COMBAT_DEDUCTION_MULT > 0
+            ? PET_COMBAT_DEDUCTION_MULT
+            : 1.5;
     return {
-        atk: Math.max(1, Math.round(atk)),
-        atkSpd: Math.max(0.07, atkSpd),
-        critRate: critRate,
-        critDmg: critDmg,
-        vamp: vamp,
+        atk: Math.max(1, Math.round(atk * cd)),
+        atkSpd: Math.max(0.07, atkSpd * cd),
+        critRate: Math.min(90, critRate * cd),
+        critDmg: critDmg * cd,
+        vamp: vamp * cd,
         name: pet.name
     };
 }
@@ -605,6 +796,34 @@ function pickPetCombatHitLine(crit, enemyName, dmgStr, petName) {
     var tpl = pool[Math.floor(Math.random() * pool.length)];
     var d = "<b>" + dmgStr + "</b>";
     return tpl.replace(/\{p\}/g, petName).replace(/\{n\}/g, enemyName).replace(/\{d\}/g, d);
+}
+
+function escapeHtmlForPetModal(s) {
+    return String(s == null ? "" : s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+}
+
+/** 放生确认弹窗用：灵宠名、境界、年份（境界/年份与详情面板一致） */
+function getPetReleaseConfirmLines(pet) {
+    if (!pet) {
+        return { name: "—", realm: "—", year: "—" };
+    }
+    normalizePetObject(pet);
+    var name = escapeHtmlForPetModal(pet.name || "无名");
+    var lr = typeof pet.lvl === "number" ? pet.lvl : Number(pet.lvl);
+    var lv = Math.max(1, Math.floor(isFinite(lr) ? lr : 1));
+    var realmRaw =
+        typeof cultivationRealmLabel === "function" ? cultivationRealmLabel(lv) : "境界 Lv." + lv;
+    var realm = escapeHtmlForPetModal(realmRaw);
+    var ageName = escapeHtmlForPetModal(getPetAgeTierDef(pet.ageTier).name);
+    var req = getPetYaoliReqToNext(pet.ageTier);
+    var cur = typeof pet.yaoli === "number" && isFinite(pet.yaoli) ? Math.max(0, Math.floor(pet.yaoli)) : 0;
+    var year =
+        req > 0 ? ageName + "（妖力 " + cur + "/" + req + "）" : ageName + "（已至极年）";
+    return { name: name, realm: realm, year: year };
 }
 
 function releasePet(petId) {
@@ -668,11 +887,21 @@ function renderPetPanel() {
     var rx = /\.0+$|(\.[0-9]*[1-9])0+$/;
     var coll = player.petCollection;
     var capLeft = PET_COLLECTION_MAX - coll.length;
+    var maxDeployLv = getMaxDeployPetLevel();
 
     var roster = coll
         .map(function (pet, idx) {
             normalizePetObject(pet);
             var active = player.activePetId === pet.id;
+            var petLvlRaw = typeof pet.lvl === "number" ? pet.lvl : Number(pet.lvl);
+            var petLvlNum = Math.max(1, Math.floor(isFinite(petLvlRaw) ? petLvlRaw : 1));
+            var overDeployCap = petLvlNum > maxDeployLv;
+            var marketBtn =
+                typeof window.DONGTIAN_CLOUD_MODE !== "undefined" && window.DONGTIAN_CLOUD_MODE
+                    ? '<button type="button" class="btn btn--sm btn--ghost pet-btn-market" data-pet-id="' +
+                      pet.id +
+                      '">修仙上架</button>'
+                    : "";
             return (
                 '<div class="pet-roster__row' +
                 (petPanelFocusId === pet.id ? " pet-roster__row--focus" : "") +
@@ -693,12 +922,17 @@ function renderPetPanel() {
                 '<div class="pet-roster__acts">' +
                 (active
                     ? '<span class="pet-roster__badge">已出战</span>'
+                    : overDeployCap
+                    ? '<span class="pet-roster__badge" style="opacity:0.8;cursor:help" title="无法出战：超出上限 ' +
+                      maxDeployLv +
+                      '（历史最高 + 10）">不可出战</span>'
                     : '<button type="button" class="btn btn--sm btn--accent pet-btn-deploy" data-pet-id="' +
                       pet.id +
                       '">出战</button>') +
                 '<button type="button" class="btn btn--sm btn--ghost pet-btn-focus" data-pet-id="' +
                 pet.id +
                 '">详情</button>' +
+                marketBtn +
                 '<button type="button" class="btn btn--sm btn--ghost pet-btn-release" data-pet-id="' +
                 pet.id +
                 '">放生</button>' +
@@ -753,31 +987,49 @@ function renderPetPanel() {
                 "%</span></div>" +
                 "</div></div>";
         }
+        var dispBs = getPetBonusStatsDisplayForPanel(p);
+        var bonusNeg = isPlayerLevelOverPetOpportunityCapForCurrentFloor() && player.activePetId === p.id;
+        var pctSign = bonusNeg ? "" : "+";
         var bonusSection =
             '<div class="pet-ui__section pet-ui__section--bonus">' +
             '<h5 class="pet-ui__section-title">机缘加成 <span class="pet-ui__section-tag">并入人物</span></h5>' +
-            '<p class="pet-ui__section-note">每层境界叠一层成长；下列为百分比机缘。</p>' +
+            '<p class="pet-ui__section-note">' +
+            (bonusNeg
+                ? '<span class="Common">本层修为已超过「秘境第 ' +
+                  getCurrentDungeonFloorForPetOpportunityRule() +
+                  " 层」机缘阈限（Lv." +
+                  getDungeonFloorPetOpportunityLevelCap(getCurrentDungeonFloorForPetOpportunityRule()) +
+                  "），出战机缘并入人物时按压制计。</span> "
+                : "") +
+            "每层境界叠一层成长；下列为百分比机缘。</p>" +
             '<ul class="pet-ui__stats pet-ui__stats--cols">' +
-            "<li><span class=\"pet-ui__stat-name\">气血</span><span class=\"pet-ui__stat-pct\">+" +
-            (p.bonusStats.hp || 0).toFixed(2).replace(rx, "$1") +
+            "<li><span class=\"pet-ui__stat-name\">气血</span><span class=\"pet-ui__stat-pct\">" +
+            pctSign +
+            (dispBs.hp || 0).toFixed(2).replace(rx, "$1") +
             "%</span></li>" +
-            "<li><span class=\"pet-ui__stat-name\">力道</span><span class=\"pet-ui__stat-pct\">+" +
-            (p.bonusStats.atk || 0).toFixed(2).replace(rx, "$1") +
+            "<li><span class=\"pet-ui__stat-name\">力道</span><span class=\"pet-ui__stat-pct\">" +
+            pctSign +
+            (dispBs.atk || 0).toFixed(2).replace(rx, "$1") +
             "%</span></li>" +
-            "<li><span class=\"pet-ui__stat-name\">护体</span><span class=\"pet-ui__stat-pct\">+" +
-            (p.bonusStats.def || 0).toFixed(2).replace(rx, "$1") +
+            "<li><span class=\"pet-ui__stat-name\">护体</span><span class=\"pet-ui__stat-pct\">" +
+            pctSign +
+            (dispBs.def || 0).toFixed(2).replace(rx, "$1") +
             "%</span></li>" +
-            "<li><span class=\"pet-ui__stat-name\">身法</span><span class=\"pet-ui__stat-pct\">+" +
-            (p.bonusStats.atkSpd || 0).toFixed(2).replace(rx, "$1") +
+            "<li><span class=\"pet-ui__stat-name\">身法</span><span class=\"pet-ui__stat-pct\">" +
+            pctSign +
+            (dispBs.atkSpd || 0).toFixed(2).replace(rx, "$1") +
             "%</span></li>" +
-            "<li><span class=\"pet-ui__stat-name\">吸血</span><span class=\"pet-ui__stat-pct\">+" +
-            (p.bonusStats.vamp || 0).toFixed(2).replace(rx, "$1") +
+            "<li><span class=\"pet-ui__stat-name\">吸血</span><span class=\"pet-ui__stat-pct\">" +
+            pctSign +
+            (dispBs.vamp || 0).toFixed(2).replace(rx, "$1") +
             "%</span></li>" +
-            "<li><span class=\"pet-ui__stat-name\">会心</span><span class=\"pet-ui__stat-pct\">+" +
-            (p.bonusStats.critRate || 0).toFixed(2).replace(rx, "$1") +
+            "<li><span class=\"pet-ui__stat-name\">会心</span><span class=\"pet-ui__stat-pct\">" +
+            pctSign +
+            (dispBs.critRate || 0).toFixed(2).replace(rx, "$1") +
             "%</span></li>" +
-            "<li><span class=\"pet-ui__stat-name\">暴伤</span><span class=\"pet-ui__stat-pct\">+" +
-            (p.bonusStats.critDmg || 0).toFixed(2).replace(rx, "$1") +
+            "<li><span class=\"pet-ui__stat-name\">暴伤</span><span class=\"pet-ui__stat-pct\">" +
+            pctSign +
+            (dispBs.critDmg || 0).toFixed(2).replace(rx, "$1") +
             "%</span></li>" +
             "</ul></div>";
         var bonusCombatBlock = combatHtml
@@ -839,6 +1091,7 @@ function renderPetPanel() {
         '<p class="pet-ui__hint">出战灵宠的机缘并入人物面板；修为入账时按 <strong>' +
         Math.round(PET_EXP_SHARE_FROM_PLAYER * 1000) / 10 +
         "%</strong> 化为该兽悟性（仅出战）。斗法中与主人同节拍出手。</p>" +
+        "<p class=\"pet-ui__hint\" style=\"margin-top:10px;opacity:0.92;font-size:0.92em;line-height:1.45\">出战境界上限为「历史最高等级 + 10」；灵兽境界超出时将<strong>自动卸下</strong>出战。</p>" +
         "</div>" +
         '<div class="pet-ui__layout">' +
         '<div class="pet-ui__col pet-ui__col--left">' +
@@ -860,6 +1113,9 @@ function renderPetPanel() {
         "</div></div></div></div>";
 }
 
+/**
+ * 灵宠面板点击统一委托（避免 innerHTML 刷新后按钮丢监听导致「详情」无效）
+ */
 function initPetModalClickDelegation() {
     var modal = document.getElementById("petModal");
     if (!modal || modal._petClickBound) return;
@@ -893,6 +1149,17 @@ function initPetModalClickDelegation() {
             return;
         }
 
+        var mkt = ev.target.closest(".pet-btn-market");
+        if (mkt) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            var mid = mkt.getAttribute("data-pet-id");
+            if (mid && typeof window.dongtianMarketOpenSellPet === "function") {
+                window.dongtianMarketOpenSellPet(mid);
+            }
+            return;
+        }
+
         var rel = ev.target.closest(".pet-btn-release");
         if (rel) {
             ev.preventDefault();
@@ -900,9 +1167,23 @@ function initPetModalClickDelegation() {
             var pid = rel.getAttribute("data-pet-id");
             if (!pid) return;
             if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
+                ensurePlayerPetCollection();
+                var relLines = getPetReleaseConfirmLines(getPetById(pid));
                 defaultModalElement.style.display = "flex";
                 defaultModalElement.innerHTML =
-                    '<div class="content"><p>确定放生此兽？它将离你而去。</p>' +
+                    '<div class="content pet-rel-confirm">' +
+                    '<p class="pet-rel-confirm__lead">确定放生此兽？它将离你而去。</p>' +
+                    '<ul class="pet-rel-confirm__info" role="list">' +
+                    '<li><strong>灵宠名</strong>：' +
+                    relLines.name +
+                    "</li>" +
+                    '<li><strong>境界</strong>：' +
+                    relLines.realm +
+                    "</li>" +
+                    '<li><strong>年份</strong>：' +
+                    relLines.year +
+                    "</li>" +
+                    "</ul>" +
                     '<div class="button-container">' +
                     '<button type="button" id="pet-rel-yes">放生</button>' +
                     '<button type="button" id="pet-rel-no">作罢</button>' +
@@ -997,3 +1278,173 @@ function refreshPetCombatHud() {
         wuxingText.textContent = cur + "/" + max + " · " + pctStr + "%";
     }
 }
+
+/**
+ * 修仙市场：只读查看挂单灵宠属性（弹窗）
+ */
+function buildPetMarketPreviewHtml(p) {
+    var rx = /\.0+$|(\.[0-9]*[1-9])0+$/;
+    normalizePetObject(p);
+    var expCap = getPetExpRequired(p);
+    var expCurrLvl = Math.max(0, Math.floor(p.exp.expCurrLvl || 0));
+    var expPct = Math.min(100, (expCurrLvl / expCap) * 100).toFixed(2).replace(rx, "$1");
+    var nextGrow = getPetExpNextGrowDisplay(p);
+    var rootsHtml = PET_ROOT_KEYS.map(function (k) {
+        return (
+            '<span class="pet-root-tag pet-root-tag--' +
+            k +
+            '">' +
+            PET_ROOT_LABEL_ZH[k] +
+            " " +
+            Math.round(p.roots[k] || 0) +
+            "</span>"
+        );
+    }).join("");
+    var realmLine = typeof cultivationRealmLabel === "function" ? cultivationRealmLabel(p.lvl) : "境界 Lv." + p.lvl;
+    var combat = typeof getPetCombatStatsForPet === "function" ? getPetCombatStatsForPet(p) : null;
+    var combatHtml = "";
+    if (combat) {
+        combatHtml =
+            '<div class="pet-ui__section pet-ui__section--combat">' +
+            '<h5 class="pet-ui__section-title">斗法推演</h5>' +
+            '<div class="pet-ui__stat-grid">' +
+            '<div class="pet-ui__stat-cell"><span class="pet-ui__stat-label">预估力道</span><span class="pet-ui__stat-val">' +
+            combat.atk +
+            "</span></div>" +
+            '<div class="pet-ui__stat-cell"><span class="pet-ui__stat-label">身法</span><span class="pet-ui__stat-val">' +
+            combat.atkSpd.toFixed(2).replace(rx, "$1") +
+            "</span></div>" +
+            '<div class="pet-ui__stat-cell"><span class="pet-ui__stat-label">会心</span><span class="pet-ui__stat-val">' +
+            combat.critRate.toFixed(1).replace(rx, "$1") +
+            "%</span></div>" +
+            '<div class="pet-ui__stat-cell"><span class="pet-ui__stat-label">暴伤</span><span class="pet-ui__stat-val">' +
+            combat.critDmg.toFixed(1).replace(rx, "$1") +
+            "%</span></div>" +
+            '<div class="pet-ui__stat-cell pet-ui__stat-cell--wide"><span class="pet-ui__stat-label">吸血</span><span class="pet-ui__stat-val">' +
+            combat.vamp.toFixed(2).replace(rx, "$1") +
+            "%</span></div>" +
+            "</div></div>";
+    }
+    var bs = p.bonusStats || {};
+    var omPv =
+        typeof PET_OPPORTUNITY_BONUS_MULT === "number" && isFinite(PET_OPPORTUNITY_BONUS_MULT) && PET_OPPORTUNITY_BONUS_MULT > 0
+            ? PET_OPPORTUNITY_BONUS_MULT
+            : 3;
+    var bonusSection =
+        '<div class="pet-ui__section pet-ui__section--bonus">' +
+        '<h5 class="pet-ui__section-title">机缘加成</h5>' +
+        '<ul class="pet-ui__stats pet-ui__stats--cols">' +
+        "<li><span class=\"pet-ui__stat-name\">气血</span><span class=\"pet-ui__stat-pct\">+" +
+        ((bs.hp || 0) * omPv).toFixed(2).replace(rx, "$1") +
+        "%</span></li>" +
+        "<li><span class=\"pet-ui__stat-name\">力道</span><span class=\"pet-ui__stat-pct\">+" +
+        ((bs.atk || 0) * omPv).toFixed(2).replace(rx, "$1") +
+        "%</span></li>" +
+        "<li><span class=\"pet-ui__stat-name\">护体</span><span class=\"pet-ui__stat-pct\">+" +
+        ((bs.def || 0) * omPv).toFixed(2).replace(rx, "$1") +
+        "%</span></li>" +
+        "<li><span class=\"pet-ui__stat-name\">身法</span><span class=\"pet-ui__stat-pct\">+" +
+        ((bs.atkSpd || 0) * omPv).toFixed(2).replace(rx, "$1") +
+        "%</span></li>" +
+        "<li><span class=\"pet-ui__stat-name\">吸血</span><span class=\"pet-ui__stat-pct\">+" +
+        ((bs.vamp || 0) * omPv).toFixed(2).replace(rx, "$1") +
+        "%</span></li>" +
+        "<li><span class=\"pet-ui__stat-name\">会心</span><span class=\"pet-ui__stat-pct\">+" +
+        ((bs.critRate || 0) * omPv).toFixed(2).replace(rx, "$1") +
+        "%</span></li>" +
+        "<li><span class=\"pet-ui__stat-name\">暴伤</span><span class=\"pet-ui__stat-pct\">+" +
+        ((bs.critDmg || 0) * omPv).toFixed(2).replace(rx, "$1") +
+        "%</span></li>" +
+        "</ul></div>";
+    var bonusCombatBlock = combatHtml ? '<div class="pet-ui__bonus-combat-row">' + bonusSection + combatHtml + "</div>" : bonusSection;
+    return (
+        '<div class="pet-ui pet-ui--xian pet-market-preview-wrap">' +
+        '<p class="xiu-market-preview-hint">挂单预览 · 仅展示属性</p>' +
+        '<div class="pet-ui__detail">' +
+        '<div class="pet-ui__detail-head">' +
+        '<h4 class="pet-ui__detail-title">' +
+        p.name +
+        "</h4>" +
+        '<p class="pet-ui__realm-line">' +
+        realmLine +
+        "</p>" +
+        "</div>" +
+        '<div class="pet-ui__expbar pet-ui__expbar--jade" role="img">' +
+        '<div class="pet-ui__expbar-fill" style="width:' +
+        expPct +
+        '%"></div>' +
+        '<span class="pet-ui__expbar-lbl">悟性 ' +
+        (typeof nFormatter === "function" ? nFormatter(expCurrLvl) : expCurrLvl) +
+        "/" +
+        (typeof nFormatter === "function" ? nFormatter(expCap) : expCap) +
+        " · +" +
+        (typeof nFormatter === "function" ? nFormatter(nextGrow) : nextGrow) +
+        "</span></div>" +
+        '<div class="pet-ui__section pet-ui__section--identity">' +
+        '<p class="pet-ui__type-readonly"><strong>类型</strong>：' +
+        (PET_TYPE_LABEL_ZH[p.type] || "平衡型") +
+        "</p>" +
+        (function () {
+            var ageName = getPetAgeTierDef(p.ageTier).name;
+            var req = getPetYaoliReqToNext(p.ageTier);
+            var cur = typeof p.yaoli === "number" && isFinite(p.yaoli) ? Math.max(0, Math.floor(p.yaoli)) : 0;
+            var prog = req > 0 ? "（妖力 " + cur + "/" + req + "）" : "（已至极年）";
+            return '<p class="pet-ui__type-readonly"><strong>年份</strong>：' + ageName + " " + prog + "</p>";
+        })() +
+        '<div class="pet-ui__roots">' +
+        rootsHtml +
+        "</div>" +
+        "</div>" +
+        bonusCombatBlock +
+        "</div></div>"
+    );
+}
+
+function showMarketPetPreview(pet) {
+    if (!pet || typeof pet !== "object") return;
+    try {
+        pet = JSON.parse(JSON.stringify(pet));
+    } catch (e) {}
+    if (typeof defaultModalElement === "undefined" || !defaultModalElement) return;
+    var inner;
+    try {
+        inner = buildPetMarketPreviewHtml(pet);
+    } catch (e) {
+        if (typeof console !== "undefined" && console.warn) console.warn("buildPetMarketPreviewHtml", e);
+        inner =
+            '<div class="content"><p class="xiu-market-muted">灵宠预览生成失败，数据可能不完整。</p><p class="xiu-market-muted">' +
+            (e && e.message ? String(e.message) : "") +
+            "</p></div>";
+    }
+    dungeon.status.exploring = false;
+    defaultModalElement.style.display = "flex";
+    defaultModalElement.style.zIndex = "5080";
+    defaultModalElement.classList.add("modal-container--market-preview");
+    defaultModalElement.innerHTML =
+        '<div class="content scrollable" style="max-height:min(85dvh,32rem);">' +
+        inner +
+        '<div class="button-container"><button type="button" id="close-market-pet-preview">关闭</button></div></div>';
+    var xiuM = document.getElementById("xiuMarketModal");
+    var sellM = document.getElementById("xiuMarketSellModal");
+    if (xiuM && xiuM.style.display === "flex") xiuM.style.filter = "brightness(55%)";
+    if (sellM && sellM.style.display === "flex") sellM.style.filter = "brightness(55%)";
+    var dm = document.querySelector("#dungeon-main");
+    if (dm) dm.style.filter = "brightness(92%)";
+    var inv = document.querySelector("#inventory");
+    if (inv && inv.style.display === "flex") inv.style.filter = "brightness(55%)";
+    var btn = document.getElementById("close-market-pet-preview");
+    if (btn) {
+        btn.onclick = function () {
+            defaultModalElement.style.display = "none";
+            defaultModalElement.style.zIndex = "";
+            defaultModalElement.classList.remove("modal-container--market-preview");
+            defaultModalElement.innerHTML = "";
+            if (xiuM) xiuM.style.filter = "";
+            if (sellM) sellM.style.filter = "";
+            if (dm) dm.style.filter = "";
+            if (inv) inv.style.filter = "";
+            if (typeof continueExploring === "function") continueExploring();
+        };
+    }
+}
+window.showMarketPetPreview = showMarketPetPreview;

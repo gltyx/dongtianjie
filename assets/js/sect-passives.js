@@ -1,3 +1,7 @@
+/**
+ * 门派被动：12×25 式。第 i 式对应「机制模板 i」，各派数值矩阵不同；
+ * 模板彼此不同，高阶不等于全面碾压，可按流派混搭 5 个上阵。
+ */
 var SECT_LIST = [
     { id: "jianzhong", name: "神剑宗", blurb: "承「神剑」之名，剑意如霜；专斩残势，敌血愈薄，剑锋愈寒。" },
     { id: "juling", name: "玄武宗", blurb: "效北方玄武，镇岳为铠；气血绵长，护体深沉，愈战愈如磐。" },
@@ -13,6 +17,7 @@ var SECT_LIST = [
     { id: "jueming", name: "绝命堂", blurb: "绝命一线，生死同悬；敌我皆残时锋芒最盛，胜则生，败则陨。" }
 ];
 
+/** 十二门派本命武器类型（与 equipment 的 Weapon category 一致）；持之则总力道独立乘算 (1+pct/100) */
 var SECT_WEAPON_ATK_BONUS_PCT = 50;
 var SECT_WEAPON_CATEGORY = {
     jianzhong: "Sword",
@@ -134,6 +139,11 @@ var PASSIVE_BY_ID = {};
             jueming:   { atk: 1.70, tank: 0.55, speed: 0.90, vamp: 1.00, burst: 1.90, style: [["onHit_enemyCurrHpPct", "onHit_enemyMissingHpPct"], ["onHit_selfMissingHpPct", "passive_critRate"], ["onCrit_damageMultPct", "passive_critDmg"], ["onHit_damageMultPct", "onHit_selfHpMaxPct"], ["onCrit_damageMultPct", "onHit_enemyMissingHpPct"]] }
         };
 
+        /**
+         * 全局平衡层：
+         * - sectPower：按门派总强度微调（>1 增强，<1 削弱）
+         * - typeScale：按词条类型统一调节（控制爆伤/减伤等高波动词条）
+         */
         var sectPower = {
             jianzhong: 0.95,
             juling: 1.05,
@@ -171,6 +181,7 @@ var PASSIVE_BY_ID = {};
         };
 
         var p = PROFILES[sectId] || PROFILES.jianzhong;
+        // 避免每 5 式机械重复：首词条按 phase 走，次词条按 tier+idx 交叉取位
         var primaryPair = p.style[phase];
         var altPhase = (phase * 2 + tier + (idx % 3)) % 5;
         var secondaryPair = p.style[altPhase];
@@ -249,6 +260,7 @@ var PASSIVE_BY_ID = {};
             var typeMul = typeScale[typeName] || 1;
             var val = raw * sectMul * typeMul;
 
+            // 再加一层硬上限，避免后期叠加离谱
             switch (typeName) {
                 case "dmgTakenReducePct":
                     val = clamp(val, 0, 23);
@@ -314,6 +326,7 @@ var PASSIVE_BY_ID = {};
             return true;
         }
 
+        // 全新门派专属池：不再共用同一套循环模板
         var sectPools = {
             jianzhong: ["onHit_enemyMissingHpPct", "onCrit_damageMultPct", "passive_critDmg", "passive_critRate", "onHit_damageMultPct", "passive_atkPct", "onHit_enemyCurrHpPct", "onHit_stackAtk"],
             juling: ["passive_hpPct", "passive_defPct", "dmgTakenReducePct", "thornsPctOfTaken", "onHit_selfHpMaxPct", "onHit_enemyCurrHpPct", "passive_atkPct", "onHit_damageMultPct"],
@@ -338,14 +351,18 @@ var PASSIVE_BY_ID = {};
 
         var pool = sectPools[sectId] || allEffectTypes;
         var out = [];
+        // 起手两词条：沿用门派主风格，但换算成每式不同组合
         pushUnique(out, pair[0], 1);
         pushUnique(out, pair[1], 1);
+        // 核心三词条：用不同步长取位，生成 25 式离散组合
         pushUnique(out, pool[(idx * 1 + tier + 1) % pool.length], 0.78);
         pushUnique(out, pool[(idx * 3 + phase + 2) % pool.length], 0.72);
         pushUnique(out, pool[(idx * 5 + tier + phase + 3) % pool.length], 0.66);
+        // 里程碑再加一条，进一步拉开 5/10/15/20/25 体感
         if (phase === 4) {
             pushUnique(out, pool[(idx * 7 + tier + 1) % pool.length], 0.9);
         }
+        // 三个极端门派保留自损换攻特色
         if (sectId === "xuesha" && (phase === 0 || phase === 2)) {
             out.push({ type: "passive_hpPct", value: -r1((2.0 + tier * 0.9) * 0.9) });
             pushUnique(out, "passive_vamp", 0.95);
@@ -357,6 +374,7 @@ var PASSIVE_BY_ID = {};
             pushUnique(out, "onHit_enemyMissingHpPct", 0.9);
         }
 
+        // 硬性唯一：同门派若组合重复，持续补不同词条直到唯一
         var used = usedComboKeys || {};
         var key = comboKey(out);
         var guard = 0;
@@ -451,6 +469,7 @@ var PASSIVE_BY_ID = {};
                 id: pid,
                 sectId: sect.id,
                 name: names[sect.id][i],
+                flavor: PATTERN_FLAVOR[i],
                 desc: PATTERN_FLAVOR[i] + describeEffects(eff),
                 reqLvl: t.reqLvl,
                 cost: t.cost,
@@ -477,8 +496,8 @@ function getPassivesForSect(sid) {
     return PASSIVE_SKILLS.filter(function (p) { return p.sectId === sid; });
 }
 
-var PASSIVE_LEVEL_BONUS_PER_LEVEL = 0.05; // 每级 +5% 效果
-var PASSIVE_LEVEL_MAX = 20; // 功法等级上限
+var PASSIVE_LEVEL_BONUS_PER_LEVEL = 0.2; // 每级 +20% 效果（相对 1 级基准）
+var PASSIVE_LEVEL_MAX = 10; // 功法等级上限
 
 function getEquippedPassiveBonusLevelMap() {
     var out = {};
@@ -495,20 +514,80 @@ function getEquippedPassiveBonusLevelMap() {
 }
 
 function getPassiveEffectiveLevel(pid) {
-    if (!player || !pid) return 0;
+    if (!player || pid == null) return 0;
+    var pidStr = String(pid);
     var learned = player.learnedPassives || [];
-    if (learned.indexOf(pid) < 0) return 0;
+    var known = false;
+    for (var li = 0; li < learned.length; li++) {
+        if (String(learned[li]) === pidStr) {
+            known = true;
+            break;
+        }
+    }
+    if (!known) return 0;
     var base = 1;
-    if (player.learnedPassiveLevels && typeof player.learnedPassiveLevels[pid] === "number") {
-        base = Math.max(1, Math.floor(player.learnedPassiveLevels[pid]));
+    if (player.learnedPassiveLevels && typeof player.learnedPassiveLevels === "object") {
+        var rawBase = player.learnedPassiveLevels[pidStr];
+        if (typeof rawBase !== "number") rawBase = player.learnedPassiveLevels[pid];
+        if (typeof rawBase === "number") base = Math.max(1, Math.floor(rawBase));
     }
     var eqMap = getEquippedPassiveBonusLevelMap();
-    return Math.min(PASSIVE_LEVEL_MAX, base + (eqMap[pid] || 0));
+    var eqExtra = eqMap && typeof eqMap === "object" ? Math.max(0, Math.floor(Number(eqMap[pidStr] || eqMap[pid]) || 0)) : 0;
+    return Math.min(PASSIVE_LEVEL_MAX, base + eqExtra);
 }
 
 function scalePassiveEffectValueByLevel(v, effLv) {
     if (effLv <= 1) return v;
     return v * (1 + (effLv - 1) * PASSIVE_LEVEL_BONUS_PER_LEVEL);
+}
+
+/** 与 describeEffects 相同取整规则，用于 UI 展示加成后的数值 */
+function formatPassiveEffectDisplayValue(typeName, v) {
+    if (typeName === "onHit_stackAtkSpd") return Math.round(v * 10000) / 10000;
+    if (typeName === "passive_vamp" || typeName === "passive_critRate" || typeName === "onHit_selfMissingHpPct") {
+        return Math.round(v * 100) / 100;
+    }
+    if (typeName === "onHit_flat") return Math.round(v);
+    return Math.round(v * 10) / 10;
+}
+
+/**
+ * 按当前功法等级生成效果说明（与战斗聚合 scalePassiveEffectValueByLevel 一致）
+ */
+function describePassiveEffectsScaled(eff, effLv) {
+    var lv = Math.max(1, Math.floor(Number(effLv) || 1));
+    var out = [];
+    function signed(v) {
+        return (v >= 0 ? "+" : "") + v;
+    }
+    for (var i = 0; i < eff.length; i++) {
+        var e = eff[i];
+        var raw = scalePassiveEffectValueByLevel(e.value, lv);
+        var v = formatPassiveEffectDisplayValue(e.type, raw);
+        switch (e.type) {
+            case "onHit_enemyCurrHpPct": out.push("击中时额外造成目标当前气血 " + v + "% 伤害"); break;
+            case "onHit_enemyMissingHpPct": out.push("击中时额外造成目标已损失气血 " + v + "% 的伤害"); break;
+            case "onHit_selfMissingHpPct": out.push("击中时额外造成等同于自身已损失气血 " + v + "% 的伤害"); break;
+            case "onHit_selfHpMaxPct": out.push("击中时额外造成自身气血上限 " + v + "% 的伤害"); break;
+            case "onHit_flat": out.push("击中时额外造成 " + v + " 点固定伤害"); break;
+            case "onHit_damageMultPct": out.push("最终伤害 +" + v + "%"); break;
+            case "onCrit_damageMultPct": out.push("暴击时再提高 " + v + "% 伤害"); break;
+            case "onHit_stackAtk": out.push("每次命中力道 +" + v + "（脱战重置）"); break;
+            case "onHit_stackAtkSpd": out.push("每次命中身法 +" + v + "（脱战重置）"); break;
+            case "passive_atkPct": out.push("力道 " + signed(v) + "%"); break;
+            case "passive_hpPct": out.push("气血上限 " + signed(v) + "%"); break;
+            case "passive_defPct": out.push("护体 " + signed(v) + "%"); break;
+            case "passive_critRate": out.push("会心 " + signed(v) + "%"); break;
+            case "passive_critDmg": out.push("暴伤 +" + v); break;
+            case "passive_atkSpdPct": out.push("身法 " + signed(v) + "%"); break;
+            case "passive_vamp": out.push("吸血 " + signed(v) + "%"); break;
+            case "dmgTakenReducePct": out.push("受到的伤害 -" + v + "%"); break;
+            case "thornsPctOfTaken": out.push("将所受伤害的 " + v + "% 反噬给敌方"); break;
+            case "onHit_vampBonusPct": out.push("本击吸血额外 +" + v + "%（按当次伤害结算）"); break;
+            default: break;
+        }
+    }
+    return out.join("；");
 }
 
 function aggregatePassiveStatBonuses(equippedIds) {

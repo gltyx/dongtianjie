@@ -1,4 +1,4 @@
-
+/** 武器品类中文名（与门派气质对应：神剑剑、逍遥扇、明教枪等） */
 const WEAPON_CATEGORY_ZH = {
     Sword: "剑",
     Axe: "巨斧",
@@ -14,7 +14,7 @@ const WEAPON_CATEGORY_ZH = {
     Whip: "长鞭"
 };
 
-
+/** 门派专属武器品类中文（与 sect-passives 中 SECT_WEAPON_CATEGORY 对应） */
 function getSectWeaponTypeZh(sectId) {
     if (!sectId || typeof getSectWeaponCategory !== "function") return "";
     var cat = getSectWeaponCategory(sectId);
@@ -22,7 +22,7 @@ function getSectWeaponTypeZh(sectId) {
     return WEAPON_CATEGORY_ZH[cat] || cat;
 }
 
-
+/** 防具品类中文名（旧存档无专名时回退） */
 const DEFENSE_CATEGORY_ZH = {
     Plate: "板甲",
     Chain: "链甲",
@@ -34,6 +34,7 @@ const DEFENSE_CATEGORY_ZH = {
     "Horned Helm": "角盔"
 };
 
+/** 护甲甲种（仅 Armor 类型使用） */
 const ARMOR_CLASS_TYPES = ["Heavy", "Light", "Cloth", "Plate", "Leather"];
 const ARMOR_CLASS_LABEL_ZH = {
     Heavy: "重甲",
@@ -43,6 +44,7 @@ const ARMOR_CLASS_LABEL_ZH = {
     Leather: "皮甲"
 };
 
+/** 12 门派甲种契合：favored +20%，penalized -20% */
 const SECT_ARMOR_CLASS_AFFINITY = {
     jianzhong: { favored: "Light", penalized: "Cloth" },
     juling: { favored: "Heavy", penalized: "Light" },
@@ -175,6 +177,7 @@ function formatArmorClassBonusMetaHtml(item) {
     );
 }
 
+/** 项链/戒指品类（无专名时回退） */
 const ACCESSORY_CATEGORY_ZH = {
     SoulLocket: "魂锁",
     JadePendant: "玉坠",
@@ -184,6 +187,7 @@ const ACCESSORY_CATEGORY_ZH = {
     XuanRing: "玄戒"
 };
 
+/** 身负之器：六格，每类至多一件（顺序固定） */
 const EQUIP_SLOT_TYPE_ORDER = ["Weapon", "Armor", "Shield", "Helmet", "Ring", "Necklace"];
 const EQUIP_SLOT_TYPE_LABEL_ZH = {
     Weapon: "武器",
@@ -195,6 +199,7 @@ const EQUIP_SLOT_TYPE_LABEL_ZH = {
 };
 const EQUIP_SLOT_TYPE_SET = { Weapon: 1, Armor: 1, Shield: 1, Helmet: 1, Ring: 1, Necklace: 1 };
 
+/** 稀有度档次顺序（与 createEquipment 中 rarityChances 一致，下标 0=凡俗） */
 const EQUIPMENT_RARITY_TIER_ORDER = [
     "Common",
     "Uncommon",
@@ -209,12 +214,14 @@ const EQUIPMENT_RARITY_TIER_ORDER = [
     "Apexother"
 ];
 
+/** 下标 ≥ 此值的遗器（「玄纹铸」Rare 及以上）生成时有概率带套装 */
 const EQUIP_SET_MIN_RARITY_TIER_INDEX = 2;
 
 /** 带套装概率 */
 const EQUIP_SET_ROLL_CHANCE = 0.1;
 const EQUIP_PASSIVE_BONUS_MIN_RARITY_TIER_INDEX = 1; // 2 品及以上可出功法加成
 
+/** 30 套：2/4/6 件叠加机缘类百分比（与机缘面板同一套属性） */
 const EQUIPMENT_SET_DEFINITIONS = [
     { name: "周天星图", b2: { hp: 14, atk: 10 }, b4: { hp: 32, atk: 26, critRate: 12 }, b6: { hp: 58, atk: 48, critRate: 22, critDmg: 28 } },
     { name: "玄冥寒域", b2: { def: 16, atkSpd: 8 }, b4: { def: 36, atkSpd: 18, hp: 20 }, b6: { def: 62, atkSpd: 32, hp: 38, vamp: 14 } },
@@ -270,6 +277,7 @@ function emptyEquipmentSetBonusTotals() {
     return { hp: 0, atk: 0, def: 0, atkSpd: 0, vamp: 0, critRate: 0, critDmg: 0 };
 }
 
+/** 已穿戴中同一 setId 的件数 */
 function getEquippedSetPieceCount(setId) {
     if (!player || !Array.isArray(player.equipped) || typeof setId !== "number") return 0;
     var n = 0;
@@ -458,6 +466,22 @@ function showInventoryFullModal() {
     }
 }
 
+/** 典让品阶筛选 / 自动典让所用，须与 #sell-rarity 的 value 一致 */
+var AUTO_BATCH_SELL_RARITY_ALLOWED = {
+    Common: 1,
+    Uncommon: 1,
+    Rare: 1,
+    Epic: 1,
+    Legendary: 1,
+    Heirloom: 1,
+    Etherbound: 1,
+    StellarSign: 1,
+    Nullforge: 1,
+    Chronarch: 1,
+    Apexother: 1,
+    All: 1
+};
+
 function ensureInventoryUiFilters() {
     if (!player.inventory) player.inventory = { equipment: [] };
     if (!player.inventory.uiFilter) {
@@ -466,6 +490,9 @@ function ensureInventoryUiFilters() {
     if (typeof player.inventory.uiFilter.rarity !== "string") player.inventory.uiFilter.rarity = "All";
     if (typeof player.inventory.uiFilter.slotType !== "string") player.inventory.uiFilter.slotType = "All";
     if (player.inventory.autoBatchSell === undefined) player.inventory.autoBatchSell = false;
+    if (typeof player.inventory.autoBatchSellRarity !== "string" || !AUTO_BATCH_SELL_RARITY_ALLOWED[player.inventory.autoBatchSellRarity]) {
+        player.inventory.autoBatchSellRarity = "Common";
+    }
     if (player.inventory.bagTab !== "equip" && player.inventory.bagTab !== "mat" && player.inventory.bagTab !== "gem") {
         player.inventory.bagTab = "equip";
     }
@@ -474,9 +501,18 @@ function ensureInventoryUiFilters() {
 
 function maybeAutoBatchSellAfterLoot() {
     if (!player || !player.inventory || !player.inventory.autoBatchSell) return;
+    ensureInventoryUiFilters();
+    sellAll(player.inventory.autoBatchSellRarity);
+}
+
+/** 将典让品阶下拉与存档同步（刷新后恢复选项） */
+function syncInventorySellRarityDom() {
     var sel = document.getElementById("sell-rarity");
-    var rarity = sel ? sel.value : "All";
-    sellAll(rarity);
+    if (!sel || typeof player === "undefined" || !player || !player.inventory) return;
+    ensureInventoryUiFilters();
+    var v = player.inventory.autoBatchSellRarity;
+    sel.value = v;
+    sel.className = "select-field select-field--inv " + (v === "All" ? "Common" : v);
 }
 
 function passesBagFilter(item) {
@@ -519,6 +555,7 @@ function findEquippedIndexByType(type) {
     return -1;
 }
 
+/** 每类仅保留一件，未知类型或重复退回行囊 */
 function normalizePlayerEquippedSlots() {
     if (!player || !Array.isArray(player.equipped)) return;
     if (!player.inventory) player.inventory = { equipment: [] };
@@ -560,6 +597,7 @@ function weaponCategoryLabel(item) {
     return item.category || "";
 }
 
+/** 武器/防具/饰品显示修仙专名；旧存档无专名时回退品类中文 */
 function weaponOrArmorDisplayName(item) {
     if (!item) return "";
     if (item.type === "Weapon" && item.weaponName) {
@@ -574,7 +612,501 @@ function weaponOrArmorDisplayName(item) {
     return weaponCategoryLabel(item);
 }
 
-const createEquipment = () => {
+/** 秘境遗器「境界等级」上限：第 f 层不超过 f×本值（含 f×本值）。例：5 → 第1层≤5、第2层≤10。设为 0 关闭按层封顶。 */
+const DUNGEON_EQUIP_MAX_LVL_PER_FLOOR = 5;
+
+function getDungeonEquipmentLvlCap() {
+    if (typeof dungeon === "undefined" || !dungeon || !dungeon.progress || typeof dungeon.progress.floor !== "number") {
+        return null;
+    }
+    var per = typeof DUNGEON_EQUIP_MAX_LVL_PER_FLOOR === "number" ? DUNGEON_EQUIP_MAX_LVL_PER_FLOOR : 0;
+    if (per <= 0) return null;
+    var f = Math.max(1, Math.floor(dungeon.progress.floor));
+    return f * per;
+}
+
+/**
+ * 气血 / 力道 / 护体 按遗器等级分段（每 10 级一档）：每档相对上一档 +20%（复合），即 1–10 为 ×1，11–20 为 ×1.2，21–30 为 ×1.2²，以此类推。
+ * 倍率 = 1.2^floor((lvl-1)/10)
+ * 本倍率在「基础 hp/atk/def 按层封顶」之后再乘入词条，不参与封顶缩量（与淬火/附魔同为后乘层）。
+ */
+function getEquipmentHpAtkDefLevelTierMul(lvl) {
+    var n = typeof lvl === "number" && isFinite(lvl) && lvl > 0 ? Math.floor(lvl) : 1;
+    var tier = Math.floor((n - 1) / 10);
+    if (tier < 0) tier = 0;
+    return Math.pow(1.2, tier);
+}
+
+/** 封顶之后：将境界档倍率乘到每条 hp/atk/def 上 */
+function applyEquipmentHpAtkDefLevelTierMulToStats(equipment, lvl) {
+    var mul = getEquipmentHpAtkDefLevelTierMul(lvl);
+    if (!equipment || !Array.isArray(equipment.stats) || !isFinite(mul) || mul <= 0 || mul === 1) return;
+    for (var i = 0; i < equipment.stats.length; i++) {
+        var row = equipment.stats[i];
+        if (!row || typeof row !== "object") continue;
+        var k = Object.keys(row)[0];
+        if (k === "hp" || k === "atk" || k === "def") {
+            row[k] = Math.round(Number(row[k]) * mul);
+        }
+    }
+}
+
+/** 重算封顶前：剥去境界档倍率（与 normalizeOneEquipmentItemFloorCap 配合） */
+function stripEquipmentHpAtkDefLevelTierMulFromStats(equipment, lvl) {
+    var mul = getEquipmentHpAtkDefLevelTierMul(lvl);
+    if (!equipment || !Array.isArray(equipment.stats) || !isFinite(mul) || mul <= 0 || mul === 1) return;
+    for (var i = 0; i < equipment.stats.length; i++) {
+        var row = equipment.stats[i];
+        if (!row || typeof row !== "object") continue;
+        var k = Object.keys(row)[0];
+        if (k === "hp" || k === "atk" || k === "def") {
+            row[k] = Math.round(Number(row[k]) / mul);
+        }
+    }
+}
+
+/**
+ * 身法/吸血/会心/爆伤：与掷骰公式 cdAtkSpdScaling、crVampScaling 一致的单次理论上界（再乘 EQUIP_SECONDARY_PER_ROLL_CAP_SCALE），用于生成与封顶。
+ * 身法、爆伤与 maxCd 同源（3.5 系数）；吸血、会心为 3+3M 且不超过原硬顶 25/30。
+ */
+var EQUIP_SECONDARY_PER_ROLL_CAP_SCALE = 0.3;
+
+/**
+ * 联合预算：Σ(该属性值 / 该属性独立上限) ≤ 本值。与「loopCount 次掷骰、每次只加一条属性」一致；
+ * 仅独立封顶时可能出现各维同时顶满（比例和可 >1），此处再按比例整体缩量至「正常」。
+ */
+var EQUIP_JOINT_STAT_BUDGET_MAX = 1;
+
+function equipSecondaryPerRollCapsFromM(M) {
+    var mm = typeof M === "number" && isFinite(M) && M >= 0 ? M : 0;
+    var maxCd = 5.25 + 5.25 * mm;
+    var maxCrV = 3 + 3 * mm;
+    var sc =
+        typeof EQUIP_SECONDARY_PER_ROLL_CAP_SCALE === "number" && isFinite(EQUIP_SECONDARY_PER_ROLL_CAP_SCALE) && EQUIP_SECONDARY_PER_ROLL_CAP_SCALE > 0
+            ? EQUIP_SECONDARY_PER_ROLL_CAP_SCALE
+            : 1;
+    return {
+        atkSpd: Math.min(41, maxCd) * sc,
+        vamp: Math.min(25, maxCrV) * sc,
+        critR: Math.min(30, maxCrV) * sc,
+        critD: maxCd * sc,
+    };
+}
+
+/**
+ * 敌势对遗器数值的「有效增量」：≤ BRANCH 时 (enemyScaling−1) 全额；高于 BRANCH 时仅超出部分按 EXCESS_RATIO 计入（dungeon.js 常量，运行时已加载）。
+ */
+function dungeonEnemyScalingDeltaForEquipStats(escRaw) {
+    var esc = typeof escRaw === "number" && isFinite(escRaw) ? escRaw : 1.12;
+    var branch =
+        typeof DUNGEON_ENEMY_SCALING_EQ_BRANCH === "number" && isFinite(DUNGEON_ENEMY_SCALING_EQ_BRANCH)
+            ? DUNGEON_ENEMY_SCALING_EQ_BRANCH
+            : 1.12;
+    var excessR =
+        typeof DUNGEON_ENEMY_SCALING_EQ_EXCESS_RATIO === "number" &&
+        isFinite(DUNGEON_ENEMY_SCALING_EQ_EXCESS_RATIO) &&
+        DUNGEON_ENEMY_SCALING_EQ_EXCESS_RATIO >= 0
+            ? DUNGEON_ENEMY_SCALING_EQ_EXCESS_RATIO
+            : 0.1;
+    if (esc <= branch) return Math.max(0, esc - 1);
+    return Math.max(0, branch - 1) + (esc - branch) * excessR;
+}
+
+/**
+ * 当前秘境层敌势系数上限（与 dungeon.js 一致；用于遗器掉落按层封顶）。
+ */
+function getEscCeilingForEquipmentDropClamp() {
+    if (typeof getDungeonEnemyScalingCeilingForFloor === "function") {
+        var f =
+            typeof dungeon !== "undefined" && dungeon && dungeon.progress && typeof dungeon.progress.floor === "number"
+                ? Math.max(1, Math.floor(Number(dungeon.progress.floor) || 1))
+                : 1;
+        return getDungeonEnemyScalingCeilingForFloor(f);
+    }
+    /** 与 dungeon.js DUNGEON_ENEMY_SCALING_CAP_FLOOR1 一致（无 getDungeonEnemyScalingCeilingForFloor 时的兜底） */
+    return typeof DUNGEON_ENEMY_SCALING_CAP_FLOOR1 === "number" && isFinite(DUNGEON_ENEMY_SCALING_CAP_FLOOR1)
+        ? DUNGEON_ENEMY_SCALING_CAP_FLOOR1
+        : 1.3;
+}
+
+/**
+ * 与 clamp 一致：各基础属性独立上限（未乘境界档倍率）。
+ * @param {number} loopCount 掷骰次数（品质）
+ * @param {number} lvl 遗器境界等级
+ * @param {number} [optEscCeiling] 本层敌势系数上限；不传则用当前秘境层
+ */
+function computeEquipmentDungeonIndependentCaps(loopCount, lvl, optEscCeiling) {
+    loopCount = Math.max(1, Math.floor(Number(loopCount) || 1));
+    lvl = typeof lvl === "number" && lvl > 0 ? Math.floor(lvl) : 1;
+    var escImpactEq = typeof DUNGEON_ENEMY_SCALING_IMPACT === "number" && DUNGEON_ENEMY_SCALING_IMPACT > 0 ? DUNGEON_ENEMY_SCALING_IMPACT : 1;
+    var escCap =
+        typeof optEscCeiling === "number" && isFinite(optEscCeiling) && optEscCeiling > 0
+            ? optEscCeiling
+            : getEscCeilingForEquipmentDropClamp();
+    var deltaCap = dungeonEnemyScalingDeltaForEquipStats(escCap);
+    var M = deltaCap * lvl * escImpactEq;
+    var maxHpOne = 45 + 45 * M;
+    var maxAtkDefOne = 15 + 15 * M;
+    var secCap = equipSecondaryPerRollCapsFromM(M);
+    return {
+        escCap: escCap,
+        M: M,
+        maxHpOne: maxHpOne,
+        maxAtkDefOne: maxAtkDefOne,
+        capHp: loopCount * maxHpOne,
+        capAtk: loopCount * maxAtkDefOne,
+        capDef: loopCount * maxAtkDefOne,
+        capAtkSpd: loopCount * secCap.atkSpd,
+        capVamp: loopCount * secCap.vamp,
+        capCritR: loopCount * secCap.critR,
+        capCritD: loopCount * secCap.critD,
+    };
+}
+
+/** 与 createEquipment 稀有度一致，用于「按品质」正常掷骰参考（loopCount = infer(rarity)） */
+var EQUIPMENT_RARITY_IDS_FOR_NORMAL_DICE = [
+    "Common",
+    "Uncommon",
+    "Rare",
+    "Epic",
+    "Legendary",
+    "Heirloom",
+    "Etherbound",
+    "StellarSign",
+    "Nullforge",
+    "Chronarch",
+    "Apexother",
+];
+
+/**
+ * 「正常掷骰」参考：联合预算 Σ(值/单项上限)=1 时，七维各取「该维上限的 1/7」——七维同时有词条且总预算不超标的一种**满预算**形态（非独立封顶四维全满）。
+ * 掷骰次数 **loopCount 由品质决定**（与掉落生成一致）：未显式传 loopCount 时用 `inferEquipmentStatRollLoopsFromRarity(rarity)`；未传 rarity 时默认 Common。
+ * @param {{ loopCount?: number, rarity?: string, lvl?: number, floor?: number, escCeiling?: number }} [opt]
+ * @returns {{ rarity:string, loopCount:number, lvl:number, floor:number, escCeiling:number, M:number, caps:object, evenSpread7:object, sumFrac:number }}
+ */
+function getEquipmentNormalDiceEvenSpread7Reference(opt) {
+    opt = opt || {};
+    var floor =
+        typeof opt.floor === "number" && isFinite(opt.floor) && opt.floor >= 1
+            ? Math.floor(opt.floor)
+            : typeof dungeon !== "undefined" && dungeon && dungeon.progress && typeof dungeon.progress.floor === "number"
+              ? Math.max(1, Math.floor(Number(dungeon.progress.floor) || 1))
+              : 1;
+    var escCeiling =
+        typeof opt.escCeiling === "number" && isFinite(opt.escCeiling) && opt.escCeiling > 0
+            ? opt.escCeiling
+            : typeof getDungeonEnemyScalingCeilingForFloor === "function"
+              ? getDungeonEnemyScalingCeilingForFloor(floor)
+              : typeof DUNGEON_ENEMY_SCALING_CAP_FLOOR1 === "number" && isFinite(DUNGEON_ENEMY_SCALING_CAP_FLOOR1)
+                ? DUNGEON_ENEMY_SCALING_CAP_FLOOR1 + (floor - 1) * (typeof DUNGEON_ENEMY_SCALING_CAP_PER_FLOOR === "number" ? DUNGEON_ENEMY_SCALING_CAP_PER_FLOOR : 0.1)
+                : 1.3;
+    var rarity =
+        typeof opt.rarity === "string" && opt.rarity.length ? opt.rarity : "Common";
+    var loopCount;
+    if (typeof opt.loopCount === "number" && isFinite(opt.loopCount) && opt.loopCount >= 1) {
+        loopCount = Math.floor(opt.loopCount);
+    } else if (typeof inferEquipmentStatRollLoopsFromRarity === "function") {
+        loopCount = inferEquipmentStatRollLoopsFromRarity(rarity);
+    } else {
+        loopCount = 2;
+    }
+    var lvl =
+        typeof opt.lvl === "number" && isFinite(opt.lvl) && opt.lvl >= 1
+            ? Math.floor(opt.lvl)
+            : typeof player !== "undefined" && player && typeof player.lvl === "number" && !isNaN(player.lvl)
+              ? Math.max(1, Math.floor(player.lvl))
+              : 1;
+    var capsObj = computeEquipmentDungeonIndependentCaps(loopCount, lvl, escCeiling);
+    function r3(k, v) {
+        if (k === "hp" || k === "atk" || k === "def") return Math.round(v);
+        return Math.round(Number(v) * 100) / 100;
+    }
+    var n = 7;
+    var caps = {
+        hp: capsObj.capHp,
+        atk: capsObj.capAtk,
+        def: capsObj.capDef,
+        atkSpd: capsObj.capAtkSpd,
+        vamp: capsObj.capVamp,
+        critRate: capsObj.capCritR,
+        critDmg: capsObj.capCritD,
+    };
+    var evenSpread7 = {
+        hp: r3("hp", capsObj.capHp / n),
+        atk: r3("atk", capsObj.capAtk / n),
+        def: r3("def", capsObj.capDef / n),
+        atkSpd: r3("atkSpd", capsObj.capAtkSpd / n),
+        vamp: r3("vamp", capsObj.capVamp / n),
+        critRate: r3("critRate", capsObj.capCritR / n),
+        critDmg: r3("critDmg", capsObj.capCritD / n),
+    };
+    var sumFrac =
+        evenSpread7.hp / capsObj.capHp +
+        evenSpread7.atk / capsObj.capAtk +
+        evenSpread7.def / capsObj.capDef +
+        evenSpread7.atkSpd / capsObj.capAtkSpd +
+        evenSpread7.vamp / capsObj.capVamp +
+        evenSpread7.critRate / capsObj.capCritR +
+        evenSpread7.critDmg / capsObj.capCritD;
+    return {
+        rarity: rarity,
+        loopCount: loopCount,
+        lvl: lvl,
+        floor: floor,
+        escCeiling: escCeiling,
+        M: capsObj.M,
+        caps: caps,
+        evenSpread7: evenSpread7,
+        sumFrac: Math.round(sumFrac * 10000) / 10000,
+    };
+}
+
+/**
+ * 按品质各算一遍「七维均分满预算」参考（layer、lvl、escCeiling 等同 getEquipmentNormalDiceEvenSpread7Reference 的 opt）。
+ * @returns {Object<string, ReturnType<getEquipmentNormalDiceEvenSpread7Reference>>}
+ */
+function getEquipmentNormalDiceEvenSpread7AllRarities(opt) {
+    opt = opt || {};
+    var list =
+        Array.isArray(EQUIPMENT_RARITY_IDS_FOR_NORMAL_DICE) && EQUIPMENT_RARITY_IDS_FOR_NORMAL_DICE.length
+            ? EQUIPMENT_RARITY_IDS_FOR_NORMAL_DICE
+            : ["Common", "Uncommon", "Rare", "Epic", "Legendary", "Heirloom", "Etherbound", "StellarSign", "Nullforge", "Chronarch", "Apexother"];
+    var out = {};
+    for (var i = 0; i < list.length; i++) {
+        var r = list[i];
+        var one = {};
+        for (var k in opt) {
+            if (Object.prototype.hasOwnProperty.call(opt, k)) one[k] = opt[k];
+        }
+        one.rarity = r;
+        delete one.loopCount;
+        out[r] = getEquipmentNormalDiceEvenSpread7Reference(one);
+    }
+    return out;
+}
+
+/**
+ * 按「本层满敌势（敌势上限系数）」下 createEquipment 的单次掷骰理论上界，对**未乘境界档倍率**的 hp/atk/def 词条总和封顶。
+ * 境界档倍率（每 10 级 1.2ⁿ）在封顶之后由 applyEquipmentHpAtkDefLevelTierMulToStats 乘入，不参与本函数缩量。
+ * 不含淬火/附魔，二者后乘在 enhancement.js。
+ * 使用与生成式相同的随机上界：r1,r2=1.5。
+ */
+function clampEquipmentBaseStatsToFloorFullScalingCap(equipment, loopCount, optEscCeiling) {
+    if (!equipment || !Array.isArray(equipment.stats) || typeof loopCount !== "number" || loopCount < 1) return;
+    var lvl = typeof equipment.lvl === "number" && equipment.lvl > 0 ? Math.floor(equipment.lvl) : 1;
+    var caps = computeEquipmentDungeonIndependentCaps(loopCount, lvl, optEscCeiling);
+    var capHp = caps.capHp;
+    var capAtk = caps.capAtk;
+    var capDef = caps.capDef;
+    var capAtkSpd = caps.capAtkSpd;
+    var capVamp = caps.capVamp;
+    var capCritR = caps.capCritR;
+    var capCritD = caps.capCritD;
+
+    function sumKey(key) {
+        var t = 0;
+        for (var i = 0; i < equipment.stats.length; i++) {
+            var o = equipment.stats[i];
+            if (!o || typeof o !== "object") continue;
+            var k = Object.keys(o)[0];
+            if (k === key) t += Number(o[key]) || 0;
+        }
+        return t;
+    }
+
+    function scaleKey(key, capSum) {
+        if (capSum <= 0) return;
+        var s = sumKey(key);
+        if (s <= capSum) return;
+        var factor = capSum / s;
+        for (var j = 0; j < equipment.stats.length; j++) {
+            var row = equipment.stats[j];
+            if (!row || typeof row !== "object") continue;
+            var kk = Object.keys(row)[0];
+            if (kk !== key) continue;
+            row[kk] =
+                kk === "hp" || kk === "atk" || kk === "def"
+                    ? Math.round(Number(row[kk]) * factor)
+                    : Math.round(Number(row[kk]) * factor * 100) / 100;
+        }
+    }
+
+    scaleKey("hp", capHp);
+    scaleKey("atk", capAtk);
+    scaleKey("def", capDef);
+    scaleKey("atkSpd", capAtkSpd);
+    scaleKey("vamp", capVamp);
+    scaleKey("critRate", capCritR);
+    scaleKey("critDmg", capCritD);
+
+    var budgetMax =
+        typeof EQUIP_JOINT_STAT_BUDGET_MAX === "number" && isFinite(EQUIP_JOINT_STAT_BUDGET_MAX) && EQUIP_JOINT_STAT_BUDGET_MAX > 0
+            ? EQUIP_JOINT_STAT_BUDGET_MAX
+            : 1;
+    var statKeys = ["hp", "atk", "def", "atkSpd", "vamp", "critRate", "critDmg"];
+    var capMap = {
+        hp: capHp,
+        atk: capAtk,
+        def: capDef,
+        atkSpd: capAtkSpd,
+        vamp: capVamp,
+        critRate: capCritR,
+        critDmg: capCritD,
+    };
+    var sumFrac = 0;
+    for (var si = 0; si < statKeys.length; si++) {
+        var sk = statKeys[si];
+        var capK = capMap[sk];
+        if (!(capK > 0)) continue;
+        var sumK = sumKey(sk);
+        if (!(sumK > 0)) continue;
+        sumFrac += sumK / capK;
+    }
+    if (sumFrac > budgetMax + 1e-9) {
+        var jFactor = budgetMax / sumFrac;
+        for (var jj = 0; jj < equipment.stats.length; jj++) {
+            var rowJ = equipment.stats[jj];
+            if (!rowJ || typeof rowJ !== "object") continue;
+            var kJ = Object.keys(rowJ)[0];
+            if (capMap[kJ] == null || !(capMap[kJ] > 0)) continue;
+            rowJ[kJ] =
+                kJ === "hp" || kJ === "atk" || kJ === "def"
+                    ? Math.round(Number(rowJ[kJ]) * jFactor)
+                    : Math.round(Number(rowJ[kJ]) * jFactor * 100) / 100;
+        }
+    }
+}
+
+/** 按与 createEquipment 相同的规则从基础词条重算卖价（value 为 stats 合计×3） */
+function recomputeEquipmentSellValueFromBaseStats(equipment) {
+    if (!equipment || !Array.isArray(equipment.stats)) return;
+    var equipmentValue = 0;
+    for (var i = 0; i < equipment.stats.length; i++) {
+        var o = equipment.stats[i];
+        if (!o || typeof o !== "object") continue;
+        var statType = Object.keys(o)[0];
+        var statValue = Number(o[statType]) || 0;
+        if (statType === "hp") equipmentValue += statValue;
+        else if (statType === "atk" || statType === "def") equipmentValue += statValue * 2.5;
+        else if (statType === "atkSpd") equipmentValue += statValue * 8.33;
+        else if (statType === "vamp" || statType === "critRate") equipmentValue += statValue * 20.83;
+        else if (statType === "critDmg") equipmentValue += statValue * 8.33;
+    }
+    equipment.value = Math.round(equipmentValue * 3);
+}
+
+/** 与 createEquipment 稀有度 → 掷骰次数一致（用于老装备无 statRollLoops 时推断） */
+function inferEquipmentStatRollLoopsFromRarity(rarity) {
+    switch (rarity) {
+        case "Common":
+            return 2;
+        case "Uncommon":
+            return 3;
+        case "Rare":
+            return 4;
+        case "Epic":
+            return 5;
+        case "Legendary":
+            return 6;
+        case "Heirloom":
+            return 8;
+        case "Etherbound":
+            return 10;
+        case "StellarSign":
+            return 11;
+        case "Nullforge":
+            return 13;
+        case "Chronarch":
+            return 15;
+        case "Apexother":
+            return 17;
+        default:
+            return 2;
+    }
+}
+
+/**
+ * 推断用于封顶的秘境层：优先 dungeonDropFloor；否则按装备等级与每层等级步长；再否则当前秘境层。
+ */
+function getEquipmentFloorHintForClamp(item) {
+    if (item && typeof item.dungeonDropFloor === "number" && isFinite(item.dungeonDropFloor) && item.dungeonDropFloor >= 1) {
+        return Math.max(1, Math.floor(item.dungeonDropFloor));
+    }
+    var per = typeof DUNGEON_EQUIP_MAX_LVL_PER_FLOOR === "number" && DUNGEON_EQUIP_MAX_LVL_PER_FLOOR > 0 ? DUNGEON_EQUIP_MAX_LVL_PER_FLOOR : 5;
+    if (item && typeof item.lvl === "number" && item.lvl > 0) {
+        return Math.max(1, Math.ceil(item.lvl / per));
+    }
+    if (typeof dungeon !== "undefined" && dungeon && dungeon.progress && typeof dungeon.progress.floor === "number") {
+        return Math.max(1, Math.floor(Number(dungeon.progress.floor) || 1));
+    }
+    return 1;
+}
+
+/**
+ * 对单件遗器：剥去淬火/附魔倍率 → 剥去境界档 hp/atk/def 倍率 → 按层敌势上限封顶基础词条 → 乘回境界档倍率 → 重算卖价 → 乘回淬火/附魔（与 createEquipment 掉落封顶一致）。
+ */
+function normalizeOneEquipmentItemFloorCap(item) {
+    if (!item || !Array.isArray(item.stats) || item.stats.length === 0) return;
+    var stars = typeof item.enhanceStars === "number" ? Math.max(0, Math.min(10, Math.floor(item.enhanceStars))) : 0;
+    var enchPct = typeof item.enchantPct === "number" ? Math.max(0, Math.floor(item.enchantPct)) : 0;
+    var mulEnh = typeof getEnhancementStatMul === "function" ? getEnhancementStatMul(stars) : 1;
+    var mulEnch = 1 + enchPct / 100;
+    var mulTotal = mulEnh * mulEnch;
+    if (!isFinite(mulTotal) || mulTotal <= 0) mulTotal = 1;
+
+    if (mulTotal > 1.0001 && typeof scaleEquipmentStatsInPlace === "function") {
+        scaleEquipmentStatsInPlace(item, 1 / mulTotal);
+    }
+
+    var lvlNorm = typeof item.lvl === "number" && item.lvl > 0 ? Math.floor(item.lvl) : 1;
+    stripEquipmentHpAtkDefLevelTierMulFromStats(item, lvlNorm);
+
+    var loops =
+        typeof item.statRollLoops === "number" && item.statRollLoops >= 1 ? Math.floor(item.statRollLoops) : inferEquipmentStatRollLoopsFromRarity(item.rarity);
+    var floorHint = getEquipmentFloorHintForClamp(item);
+    var escCap =
+        typeof getDungeonEnemyScalingCeilingForFloor === "function" ? getDungeonEnemyScalingCeilingForFloor(floorHint) : getEscCeilingForEquipmentDropClamp();
+
+    clampEquipmentBaseStatsToFloorFullScalingCap(item, loops, escCap);
+    applyEquipmentHpAtkDefLevelTierMulToStats(item, lvlNorm);
+    recomputeEquipmentSellValueFromBaseStats(item);
+
+    if (mulTotal > 1.0001 && typeof scaleEquipmentStatsInPlace === "function") {
+        scaleEquipmentStatsInPlace(item, mulTotal);
+    }
+}
+
+/** 背包 + 已装备遗器一次性套用层封顶（读档迁移）；返回是否改过任意数值（用于决定是否存盘）。 */
+function repairAllPlayerEquipmentToFloorScalingCap() {
+    if (typeof player === "undefined" || !player) return false;
+    var changed = false;
+    function procItem(eq) {
+        if (!eq || !Array.isArray(eq.stats)) return;
+        var before = JSON.stringify(eq.stats) + "|" + (typeof eq.value === "number" ? eq.value : 0);
+        normalizeOneEquipmentItemFloorCap(eq);
+        var after = JSON.stringify(eq.stats) + "|" + (typeof eq.value === "number" ? eq.value : 0);
+        if (before !== after) changed = true;
+    }
+    if (player.inventory && Array.isArray(player.inventory.equipment)) {
+        for (var i = 0; i < player.inventory.equipment.length; i++) {
+            try {
+                var invItem = JSON.parse(player.inventory.equipment[i]);
+                procItem(invItem);
+                player.inventory.equipment[i] = JSON.stringify(invItem);
+            } catch (e) {}
+        }
+    }
+    if (Array.isArray(player.equipped)) {
+        for (var j = 0; j < player.equipped.length; j++) {
+            if (player.equipped[j]) procItem(player.equipped[j]);
+        }
+    }
+    return changed;
+}
+
+/** @param {{ forceLvl?: number }} [craftOpts] forceLvl：战斗掉落时传入enemy.lvl，与击杀对象等级一致；事件发装不传则用本层等级区间随机一次（全词缀共用）。 */
+const createEquipment = (craftOpts) => {
+    craftOpts = craftOpts || {};
     const equipment = {
         category: null,
         attribute: null,
@@ -634,6 +1166,8 @@ const createEquipment = () => {
             : "";
     }
 
+    // Generate random equipment rarity（须按概率从低到高顺序累加，总和为 1）
+    // 高档显著压低；不再按秘境层数限制高阶，全层统一按下列权重
     const rarityChances = [
         ["Common", 0.882],
         ["Uncommon", 0.094],
@@ -647,34 +1181,14 @@ const createEquipment = () => {
         ["Chronarch", 0.00002],
         ["Apexother", 0.00001],
     ];
-    const tierMinFloor = {
-        Etherbound: 12,
-        StellarSign: 28,
-        Nullforge: 48,
-        Chronarch: 72,
-        Apexother: 92,
-    };
-
-    const currentFloor = (dungeon && dungeon.progress && dungeon.progress.floor) ? dungeon.progress.floor : 1;
-    let adjustedWeights = rarityChances.map(([name, w]) => [name, w]);
-    const heirloomIdx = adjustedWeights.findIndex(([n]) => n === "Heirloom");
-    for (const tierName in tierMinFloor) {
-        if (currentFloor < tierMinFloor[tierName]) {
-            const idx = adjustedWeights.findIndex(([n]) => n === tierName);
-            if (idx >= 0 && heirloomIdx >= 0) {
-                adjustedWeights[heirloomIdx][1] += adjustedWeights[idx][1];
-                adjustedWeights[idx][1] = 0;
-            }
-        }
-    }
 
     const randomNumber = Math.random();
     let cumulativeChance = 0;
     equipment.rarity = "Common";
-    for (let i = 0; i < adjustedWeights.length; i++) {
-        cumulativeChance += adjustedWeights[i][1];
+    for (let i = 0; i < rarityChances.length; i++) {
+        cumulativeChance += rarityChances[i][1];
         if (randomNumber <= cumulativeChance) {
-            equipment.rarity = adjustedWeights[i][0];
+            equipment.rarity = rarityChances[i][0];
             break;
         }
     }
@@ -715,6 +1229,9 @@ const createEquipment = () => {
         case "Apexother":
             loopCount = 17;
             break;
+        default:
+            loopCount = 2;
+            break;
     }
 
     // Generate and append random stats to the stats array
@@ -723,6 +1240,7 @@ const createEquipment = () => {
     const speedyStats = ["atkSpd", "atkSpd", "vamp", "critRate", "critRate", "critDmg"];
     const defenseStats = ["hp", "hp", "def", "def", "atk"];
     const dmgDefStats = ["hp", "def", "atk", "atk", "critRate", "critDmg"];
+    /** 饰品：偏机缘属性，略掺气血护体 */
     const accessoryStats = ["hp", "critRate", "critDmg", "vamp", "atkSpd", "atk", "def", "hp"];
     let statTypes;
     if (equipment.attribute == "Damage") {
@@ -741,16 +1259,46 @@ const createEquipment = () => {
     } else if (equipment.attribute == "Accessory") {
         statTypes = accessoryStats;
     }
+    const maxLvl = dungeon.progress.floor * dungeon.settings.enemyLvlGap + (dungeon.settings.enemyBaseLvl - 1);
+    const minLvl = maxLvl - (dungeon.settings.enemyLvlGap - 1);
+    var floorCap = getDungeonEquipmentLvlCap();
+    var effMax = floorCap == null ? maxLvl : Math.min(maxLvl, floorCap);
+    var effMin = Math.min(minLvl, effMax);
+    var escImpactEq = typeof DUNGEON_ENEMY_SCALING_IMPACT === "number" && DUNGEON_ENEMY_SCALING_IMPACT > 0 ? DUNGEON_ENEMY_SCALING_IMPACT : 1;
+    if (typeof craftOpts.forceLvl === "number" && isFinite(craftOpts.forceLvl) && craftOpts.forceLvl > 0) {
+        equipment.lvl = Math.max(1, Math.round(craftOpts.forceLvl));
+        equipment.lvl = Math.max(effMin, Math.min(equipment.lvl, effMax));
+    } else {
+        equipment.lvl = randomizeNum(effMin, effMax);
+    }
+    /** 掷骰用敌势不超过本层上限（满敌势参照）；与存档邪印/溢出解耦 */
+    var escRawNum =
+        typeof dungeon !== "undefined" &&
+        dungeon &&
+        dungeon.settings &&
+        typeof dungeon.settings.enemyScaling === "number" &&
+        !isNaN(dungeon.settings.enemyScaling)
+            ? dungeon.settings.enemyScaling
+            : 1.12;
+    var escCapNum = getEscCeilingForEquipmentDropClamp();
+    var escForEquipRoll = Math.min(escRawNum, escCapNum);
+
+    var Mroll = dungeonEnemyScalingDeltaForEquipStats(escForEquipRoll) * equipment.lvl * escImpactEq;
+    var hardCapAtkSpd = Math.min(41, 5.25 + 5.25 * Mroll);
+    var hardCapVamp = Math.min(25, 3 + 3 * Mroll);
+    var hardCapCritR = Math.min(30, 3 + 3 * Mroll);
+    var secScale =
+        typeof EQUIP_SECONDARY_PER_ROLL_CAP_SCALE === "number" && isFinite(EQUIP_SECONDARY_PER_ROLL_CAP_SCALE) && EQUIP_SECONDARY_PER_ROLL_CAP_SCALE > 0
+            ? EQUIP_SECONDARY_PER_ROLL_CAP_SCALE
+            : 1;
+
     let equipmentValue = 0;
     for (let i = 0; i < loopCount; i++) {
         let statType = statTypes[Math.floor(Math.random() * statTypes.length)];
         let capped = false;
 
-        // Stat scaling for equipment
-        const maxLvl = dungeon.progress.floor * dungeon.settings.enemyLvlGap + (dungeon.settings.enemyBaseLvl - 1);
-        const minLvl = maxLvl - (dungeon.settings.enemyLvlGap - 1);
-        equipment.lvl = randomizeNum(minLvl, maxLvl);
-        let statMultiplier = (dungeon.settings.enemyScaling - 1) * equipment.lvl;
+        let statMultiplier =
+            dungeonEnemyScalingDeltaForEquipStats(escForEquipRoll) * equipment.lvl * escImpactEq;
         let hpScaling = (30 * randomizeDecimal(0.5, 1.5)) + ((30 * randomizeDecimal(0.5, 1.5)) * statMultiplier);
         let atkDefScaling = (15 * randomizeDecimal(0.5, 1.5)) + ((15 * randomizeDecimal(0.5, 1.5)) * statMultiplier);
         let cdAtkSpdScaling = (3.5 * randomizeDecimal(0.5, 1.5)) + ((3.5 * randomizeDecimal(0.5, 1.5)) * statMultiplier);
@@ -759,39 +1307,46 @@ const createEquipment = () => {
         // Set randomized numbers to respective stats and increment sell value
         if (statType === "hp") {
             statValue = randomizeNum(hpScaling * 0.5, hpScaling);
+            statValue = Math.round(statValue);
             equipmentValue += statValue;
         } else if (statType === "atk") {
             statValue = randomizeNum(atkDefScaling * 0.5, atkDefScaling);
+            statValue = Math.round(statValue);
             equipmentValue += statValue * 2.5;
         } else if (statType === "def") {
             statValue = randomizeNum(atkDefScaling * 0.5, atkDefScaling);
+            statValue = Math.round(statValue);
             equipmentValue += statValue * 2.5;
         } else if (statType === "atkSpd") {
             statValue = randomizeDecimal(cdAtkSpdScaling * 0.5, cdAtkSpdScaling);
-            if (statValue > 41) {
-                statValue = 41 * randomizeDecimal(0.5, 1);
+            if (statValue > hardCapAtkSpd) {
+                statValue = hardCapAtkSpd * randomizeDecimal(0.5, 1);
                 loopCount++;
                 capped = true;
             }
+            statValue = Math.round(statValue * secScale * 100) / 100;
             equipmentValue += statValue * 8.33;
         } else if (statType === "vamp") {
             statValue = randomizeDecimal(crVampScaling * 0.5, crVampScaling);
-            if (statValue > 25) {
-                statValue = 25 * randomizeDecimal(0.5, 1);
+            if (statValue > hardCapVamp) {
+                statValue = hardCapVamp * randomizeDecimal(0.5, 1);
                 loopCount++;
                 capped = true;
             }
+            statValue = Math.round(statValue * secScale * 100) / 100;
             equipmentValue += statValue * 20.83;
         } else if (statType === "critRate") {
             statValue = randomizeDecimal(crVampScaling * 0.5, crVampScaling);
-            if (statValue > 30) {
-                statValue = 30 * randomizeDecimal(0.5, 1);
+            if (statValue > hardCapCritR) {
+                statValue = hardCapCritR * randomizeDecimal(0.5, 1);
                 loopCount++;
                 capped = true;
             }
+            statValue = Math.round(statValue * secScale * 100) / 100;
             equipmentValue += statValue * 20.83;
         } else if (statType === "critDmg") {
             statValue = randomizeDecimal(cdAtkSpdScaling * 0.5, cdAtkSpdScaling);
+            statValue = Math.round(statValue * secScale * 100) / 100;
             equipmentValue += statValue * 8.33;
         }
 
@@ -822,9 +1377,23 @@ const createEquipment = () => {
             equipment.stats.push({ [statType]: statValue });
         }
     }
+    /** 基础词条按「本层敌势上限」对应之理论最大掷骰总和封顶；境界档倍率后乘；淬火/附魔仍后乘，不在此扣 */
+    clampEquipmentBaseStatsToFloorFullScalingCap(equipment, loopCount);
+    applyEquipmentHpAtkDefLevelTierMulToStats(equipment, equipment.lvl);
+    recomputeEquipmentSellValueFromBaseStats(equipment);
+    equipment.statRollLoops = loopCount;
+    try {
+        equipment.dungeonDropFloor = Math.max(
+            1,
+            Math.floor(
+                typeof dungeon !== "undefined" && dungeon && dungeon.progress && typeof dungeon.progress.floor === "number"
+                    ? Number(dungeon.progress.floor) || 1
+                    : 1
+            )
+        );
+    } catch (e) {}
     maybeRollEquipmentSetTag(equipment);
     maybeRollEquipmentPassiveSkillBonus(equipment);
-    equipment.value = Math.round(equipmentValue * 3);
     if (!tryPushInventoryEquipment(JSON.stringify(equipment))) {
         return null;
     }
@@ -880,7 +1449,9 @@ const equipmentIcon = (equipment) => {
     } else if (equipment == "Blade") {
         return eqWeaponIcon('<i class="fas fa-cut"></i>');
     } else if (equipment == "Glaive") {
-        return eqWeaponIcon('<i class="ra ra-scythe eq-weapon-icon__glaive"></i>');
+        return eqWeaponIcon(
+            '<img class="eq-weapon-icon__glaive-img" src="assets/img/weapon-glaive.png?v=3" alt="" decoding="async" />'
+        );
     } else if (equipment == "Whip") {
         return eqWeaponIcon('<i class="fas fa-slash"></i>');
     } else if (equipment == "Plate") {
@@ -914,12 +1485,17 @@ const equipmentIcon = (equipment) => {
     }
 }
 
+/** 装备 stats 数组 → 单键数值表（同键相加） */
 function equipmentStatsToMap(stats) {
     var m = {};
     if (!stats || !stats.length) return m;
     stats.forEach(function (stat) {
         var k = Object.keys(stat)[0];
-        if (k !== undefined) m[k] = (m[k] || 0) + stat[k];
+        if (k !== undefined) {
+            var v = Number(stat[k]);
+            if (!isFinite(v)) return;
+            m[k] = (Number(m[k]) || 0) + v;
+        }
     });
     return m;
 }
@@ -935,7 +1511,10 @@ function mergeEquipmentBonusMap(target, src) {
 }
 
 var EQUIP_STAT_ORDER = ["hp", "atk", "def", "atkSpd", "vamp", "critRate", "critDmg"];
+/** 遗器 stats 数组仅允许合并这些键，避免异常/旧档字段污染 equippedStats（如误写入 gemPct 导致属性异常） */
+var EQUIP_ITEM_STAT_KEY_SET = { hp: true, atk: true, def: true, atkSpd: true, vamp: true, critRate: true, critDmg: true };
 
+/** 装备属性键 → 中文（与道体/机缘面板一致） */
 var EQUIP_STAT_LABEL_ZH = {
     hp: "气血",
     atk: "力道",
@@ -1001,7 +1580,8 @@ function formatEquipmentEnhanceMetaHtml(item) {
 function formatEquipmentEnchantMetaHtml(item) {
     if (!item || !item.enchantTier || !item.enchantPct) return "";
     var t = Math.max(1, Math.min(4, Math.floor(item.enchantTier)));
-    var p = Math.max(1, Math.min(20, Math.floor(item.enchantPct)));
+    var cap = typeof ENCHANT_PCT_ROLL_MAX === "number" ? ENCHANT_PCT_ROLL_MAX : 50;
+    var p = Math.max(1, Math.min(cap, Math.floor(item.enchantPct)));
     return (
         '<p class="eq-meta-enchant">附魔：<strong class="eq-enchant-tier-' +
         t +
@@ -1055,6 +1635,132 @@ function formatEquipmentPassiveBonusMetaHtml(item) {
     );
 }
 
+/**
+ * 材料批量数量（宝石包启封 / 天赋果喂养）：用游戏内弹窗替代系统 prompt，避免手机/WebView 不弹出。
+ * cfg: { title, hint?, max, defaultN?, onConfirm(n), onCancel? }
+ */
+function openInvMatBatchQtyModal(cfg) {
+    var dm = typeof defaultModalElement !== "undefined" ? defaultModalElement : null;
+    var maxV = Math.max(1, Math.floor(Number(cfg.max) || 1));
+    var defV = cfg.defaultN != null ? Math.floor(Number(cfg.defaultN)) : Math.min(maxV, 10);
+    if (!isFinite(defV) || defV < 1) defV = 1;
+    defV = Math.min(defV, maxV);
+
+    function esc(s) {
+        return String(s == null ? "" : s)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;");
+    }
+
+    function cleanup() {
+        if (!dm) return;
+        dm.onclick = null;
+        dm.classList.remove("modal-container--inv-batch-qty");
+        dm.style.display = "none";
+        dm.innerHTML = "";
+    }
+
+    function runConfirm(n) {
+        cleanup();
+        if (typeof cfg.onConfirm === "function") cfg.onConfirm(n);
+    }
+
+    if (!dm) {
+        if (typeof window.prompt === "function") {
+            var raw = window.prompt((cfg.title || "") + "（1–" + maxV + "）", String(defV));
+            if (raw == null) {
+                if (typeof cfg.onCancel === "function") cfg.onCancel();
+                return;
+            }
+            var n0 = parseInt(String(raw).trim(), 10);
+            if (isFinite(n0) && n0 >= 1) runConfirm(Math.min(n0, maxV));
+        }
+        return;
+    }
+
+    dm.classList.add("modal-container--inv-batch-qty");
+    dm.style.display = "flex";
+    dm.innerHTML =
+        '<div class="content inv-batch-qty-modal">' +
+        '<p class="inv-batch-qty-modal__title">' +
+        esc(cfg.title || "请输入数量") +
+        "</p>" +
+        '<p class="inv-batch-qty-modal__hint">' +
+        esc(cfg.hint != null ? cfg.hint : "范围：1–" + maxV) +
+        "</p>" +
+        '<label class="inv-batch-qty-modal__label" for="inv-mat-batch-qty-inp">数量</label>' +
+        '<input type="number" id="inv-mat-batch-qty-inp" class="inv-batch-qty-modal__input" min="1" max="' +
+        maxV +
+        '" step="1" value="' +
+        defV +
+        '" inputmode="numeric" autocomplete="off" />' +
+        '<p class="inv-batch-qty-modal__err" id="inv-mat-batch-qty-err" style="display:none;" role="alert"></p>' +
+        '<div class="button-container inv-batch-qty-modal__btns">' +
+        '<button type="button" class="btn btn--sm btn--ghost" id="inv-mat-batch-qty-cancel">取消</button>' +
+        '<button type="button" class="btn btn--sm btn--accent" id="inv-mat-batch-qty-ok">确定</button>' +
+        "</div></div>";
+
+    var inp = document.getElementById("inv-mat-batch-qty-inp");
+    var errEl = document.getElementById("inv-mat-batch-qty-err");
+
+    function showErr(msg) {
+        if (errEl) {
+            errEl.textContent = msg;
+            errEl.style.display = "block";
+        }
+    }
+
+    function hideErr() {
+        if (errEl) errEl.style.display = "none";
+    }
+
+    function trySubmit() {
+        hideErr();
+        var n = parseInt(inp && inp.value, 10);
+        if (!isFinite(n) || n < 1) {
+            showErr("请输入 1 及以上的整数。");
+            return;
+        }
+        runConfirm(Math.min(n, maxV));
+    }
+
+    var btnCancel = document.getElementById("inv-mat-batch-qty-cancel");
+    var btnOk = document.getElementById("inv-mat-batch-qty-ok");
+    if (btnCancel) {
+        btnCancel.onclick = function () {
+            cleanup();
+            if (typeof cfg.onCancel === "function") cfg.onCancel();
+        };
+    }
+    if (btnOk) btnOk.onclick = trySubmit;
+
+    if (inp) {
+        inp.addEventListener("keydown", function (ev) {
+            if (ev.key === "Enter") {
+                ev.preventDefault();
+                trySubmit();
+            }
+        });
+        inp.addEventListener("input", hideErr);
+    }
+
+    dm.onclick = function (ev) {
+        if (ev.target === dm) {
+            cleanup();
+            if (typeof cfg.onCancel === "function") cfg.onCancel();
+        }
+    };
+
+    setTimeout(function () {
+        if (inp) {
+            inp.focus();
+            if (typeof inp.select === "function") inp.select();
+        }
+    }, 80);
+}
+
 function renderInventoryMaterialsPanel() {
     var matCap = document.getElementById("invMatCap");
     var stones = typeof getMaterialCount === "function" ? getMaterialCount(MATERIAL_ENHANCE_STONE) : 0;
@@ -1062,20 +1768,67 @@ function renderInventoryMaterialsPanel() {
     var packs = typeof getMaterialCount === "function" && typeof MATERIAL_GEM_PACK !== "undefined" ? getMaterialCount(MATERIAL_GEM_PACK) : 0;
     var openers = typeof getMaterialCount === "function" && typeof MATERIAL_SOCKET_OPENER !== "undefined" ? getMaterialCount(MATERIAL_SOCKET_OPENER) : 0;
     var fruits = typeof getMaterialCount === "function" && typeof MATERIAL_TALENT_FRUIT !== "undefined" ? getMaterialCount(MATERIAL_TALENT_FRUIT) : 0;
+    /** 勿直接写 MATERIAL_LIFE_POTION 参与求值：未定义时会导致整段 innerHTML 失败，顶栏有数但卡片不刷新 */
+    var lifePotKey = typeof MATERIAL_LIFE_POTION !== "undefined" ? MATERIAL_LIFE_POTION : "life_potion";
+    var potions = typeof getMaterialCount === "function" ? getMaterialCount(lifePotKey) : 0;
+    var petFruitKey = typeof MATERIAL_PET_EXP_FRUIT !== "undefined" ? MATERIAL_PET_EXP_FRUIT : "pet_exp_fruit";
+    var petFruits = typeof getMaterialCount === "function" ? getMaterialCount(petFruitKey) : 0;
+    var godEssKey =
+        (typeof window !== "undefined" && window.MATERIAL_GOD_ESSENCE_STONE) ||
+        (typeof MATERIAL_GOD_ESSENCE_STONE !== "undefined" ? MATERIAL_GOD_ESSENCE_STONE : "god_essence_stone");
+    var godEss =
+        typeof getMaterialCount === "function" ? getMaterialCount(godEssKey) : 0;
     if (matCap) {
         var s1 = typeof MATERIAL_ENHANCE_STONE_ZH !== "undefined" ? MATERIAL_ENHANCE_STONE_ZH + " " + stones : "强化石 " + stones;
         var s2 = typeof MATERIAL_ENCHANT_STONE_ZH !== "undefined" ? MATERIAL_ENCHANT_STONE_ZH + " " + enchStones : "附魔石 " + enchStones;
+        var s2b =
+            (typeof window !== "undefined" && window.MATERIAL_GOD_ESSENCE_STONE_ZH) ||
+            (typeof MATERIAL_GOD_ESSENCE_STONE_ZH !== "undefined" ? MATERIAL_GOD_ESSENCE_STONE_ZH : "神萃石");
         var s3 = typeof MATERIAL_SOCKET_OPENER_ZH !== "undefined" ? MATERIAL_SOCKET_OPENER_ZH + " " + openers : "开孔器 " + openers;
         var s4 = typeof MATERIAL_TALENT_FRUIT_ZH !== "undefined" ? MATERIAL_TALENT_FRUIT_ZH + " " + fruits : "天赋果 " + fruits;
-        matCap.textContent = s1 + " / " + s2 + " / " + s3 + " / " + s4;
+        var s5 = typeof MATERIAL_LIFE_POTION_ZH !== "undefined" ? MATERIAL_LIFE_POTION_ZH + " " + potions : "生命药剂 " + potions;
+        var s6 = typeof MATERIAL_PET_EXP_FRUIT_ZH !== "undefined" ? MATERIAL_PET_EXP_FRUIT_ZH + " " + petFruits : "灵宠经验果实 " + petFruits;
+        matCap.textContent =
+            s1 + " / " + s2 + " / " + s2b + " " + godEss + " / " + s3 + " / " + s4 + " / " + s5 + " / " + s6;
     }
     var el = document.getElementById("playerInventoryMaterials");
     if (!el) return;
+    function invMatMarketHtml(matKey, amt) {
+        if (typeof window.DONGTIAN_CLOUD_MODE === "undefined" || !window.DONGTIAN_CLOUD_MODE || !matKey) return "";
+        var n = parseInt(amt, 10) || 0;
+        if (n < 1) return "";
+        return (
+            '<button type="button" class="btn btn--sm btn--ghost inv-mat-card__market" data-mat-key="' +
+            String(matKey).replace(/"/g, "") +
+            '" data-mat-max="' +
+            n +
+            '">修仙上架</button>'
+        );
+    }
     var zh = typeof MATERIAL_ENHANCE_STONE_ZH !== "undefined" ? MATERIAL_ENHANCE_STONE_ZH : "强化石";
     var enchZh = typeof MATERIAL_ENCHANT_STONE_ZH !== "undefined" ? MATERIAL_ENCHANT_STONE_ZH : "附魔石";
     var packZh = typeof MATERIAL_GEM_PACK_ZH !== "undefined" ? MATERIAL_GEM_PACK_ZH : "宝石材料包";
     var openerZh = typeof MATERIAL_SOCKET_OPENER_ZH !== "undefined" ? MATERIAL_SOCKET_OPENER_ZH : "开孔器";
     var fruitZh = typeof MATERIAL_TALENT_FRUIT_ZH !== "undefined" ? MATERIAL_TALENT_FRUIT_ZH : "天赋果";
+    var potionZh = typeof MATERIAL_LIFE_POTION_ZH !== "undefined" ? MATERIAL_LIFE_POTION_ZH : "生命药剂";
+    var petExpZh = typeof MATERIAL_PET_EXP_FRUIT_ZH !== "undefined" ? MATERIAL_PET_EXP_FRUIT_ZH : "灵宠经验果实";
+    var godEssZh =
+        typeof window !== "undefined" && window.MATERIAL_GOD_ESSENCE_STONE_ZH
+            ? window.MATERIAL_GOD_ESSENCE_STONE_ZH
+            : typeof MATERIAL_GOD_ESSENCE_STONE_ZH !== "undefined"
+              ? MATERIAL_GOD_ESSENCE_STONE_ZH
+              : "神萃石";
+    var petDblRem =
+        typeof player !== "undefined" &&
+        player &&
+        typeof player.petExpDoubleCombatsRemaining === "number" &&
+        !isNaN(player.petExpDoubleCombatsRemaining)
+            ? Math.max(0, Math.floor(player.petExpDoubleCombatsRemaining))
+            : 0;
+    var petDblPer =
+        typeof PET_EXP_DOUBLE_COMBATS_PER_FRUIT === "number" && isFinite(PET_EXP_DOUBLE_COMBATS_PER_FRUIT)
+            ? Math.floor(PET_EXP_DOUBLE_COMBATS_PER_FRUIT)
+            : 100;
     el.innerHTML =
         '<div class="inv-mat-card inv-mat-card--stone" role="group" aria-label="' +
         zh +
@@ -1089,6 +1842,7 @@ function renderInventoryMaterialsPanel() {
         stones +
         "</span>" +
         '<p class="inv-mat-card__desc">在「装备」分页检视遗器时可淬火强化；成败依星阶，高星失败会掉星。可通过战斗与事件获取。</p>' +
+        invMatMarketHtml(MATERIAL_ENHANCE_STONE, stones) +
         "</div></div>" +
         '<div class="inv-mat-card inv-mat-card--enchant" role="group" aria-label="' +
         enchZh +
@@ -1101,7 +1855,39 @@ function renderInventoryMaterialsPanel() {
         '<span class="inv-mat-card__count">持有 ' +
         enchStones +
         "</span>" +
-        '<p class="inv-mat-card__desc">用于遗器附魔。附魔后可获得 1–50% 属性增幅，并在当前强化属性基础上再提升。可通过战斗与事件获取。</p>' +
+        '<p class="inv-mat-card__desc">用于遗器附魔：附魔后可获得 1–50% 属性增幅。可通过战斗与事件获取。</p>' +
+        invMatMarketHtml(MATERIAL_ENCHANT_STONE, enchStones) +
+        "</div></div>" +
+        '<div class="inv-mat-card inv-mat-card--god-essence" role="group" aria-label="' +
+        godEssZh +
+        '">' +
+        '<div class="inv-mat-card__icon" aria-hidden="true"><i class="fas fa-wand-magic-sparkles"></i></div>' +
+        '<div class="inv-mat-card__meta">' +
+        '<span class="inv-mat-card__name">' +
+        godEssZh +
+        "</span>" +
+        '<span class="inv-mat-card__count">持有 ' +
+        godEss +
+        "</span>" +
+        '<p class="inv-mat-card__desc">用于遗器<strong>神萃</strong>：每成功 1 级全词条 +2%（上限 +100 级 / +200%）。<strong>神萃石消耗每 10 级档位 +1 枚</strong>（0–9 级每次 1 枚，10–19 级每次 2 枚，以此类推）。麒麟岛副本、修仙坊市等可得。</p>' +
+        invMatMarketHtml(godEssKey, godEss) +
+        "</div></div>" +
+        '<div class="inv-mat-card inv-mat-card--life-potion" role="group" aria-label="' +
+        potionZh +
+        '">' +
+        '<div class="inv-mat-card__icon" aria-hidden="true"><i class="fas fa-flask"></i></div>' +
+        '<div class="inv-mat-card__meta">' +
+        '<span class="inv-mat-card__name">' +
+        potionZh +
+        "</span>" +
+        '<span class="inv-mat-card__count">持有 ' +
+        potions +
+        "</span>" +
+        '<p class="inv-mat-card__desc">服用后恢复当前气血上限的 <strong>50%</strong>（不超过上限）。头领及以上妖躯击败时有概率掉落。</p>' +
+        '<button type="button" class="btn btn--sm btn--accent" id="inv-use-life-potion"' +
+        (potions < 1 ? ' disabled="disabled"' : "") +
+        ">服用</button>" +
+        invMatMarketHtml(lifePotKey, potions) +
         "</div></div>" +
         '<div class="inv-mat-card inv-mat-card--gem-pack" role="group" aria-label="' +
         packZh +
@@ -1115,9 +1901,14 @@ function renderInventoryMaterialsPanel() {
         packs +
         "</span>" +
         '<p class="inv-mat-card__desc">启封后可得三枚随机一级宝石（可重复）。叩地脉、历练等机缘可得。</p>' +
+        '<div class="inv-mat-card__actions">' +
         '<button type="button" class="btn btn--sm btn--accent" id="inv-use-gem-pack"' +
         (packs < 1 ? ' disabled="disabled"' : "") +
         ">启封材料包</button>" +
+        '<button type="button" class="btn btn--sm btn--ghost" id="inv-use-gem-pack-batch"' +
+        (packs < 1 ? ' disabled="disabled"' : "") +
+        ">批量使用</button></div>" +
+        invMatMarketHtml(MATERIAL_GEM_PACK, packs) +
         "</div></div>" +
         '<div class="inv-mat-card" role="group" aria-label="' +
         openerZh +
@@ -1130,7 +1921,8 @@ function renderInventoryMaterialsPanel() {
         '<span class="inv-mat-card__count">持有 ' +
         openers +
         "</span>" +
-        '<p class="inv-mat-card__desc">用于遗器开孔（每器至多三窍）。宝藏伏击、秘境镇守必落；统领及以上妖躯有小概率遗落。</p>' +
+        '<p class="inv-mat-card__desc">用于遗器开孔（每器至多三窍）。宝藏伏击概率掉落；秘境镇守必落；统领及以上妖躯有小概率遗落。</p>' +
+        invMatMarketHtml(MATERIAL_SOCKET_OPENER, openers) +
         "</div></div>" +
         '<div class="inv-mat-card inv-mat-card--talent" role="group" aria-label="' +
         fruitZh +
@@ -1144,10 +1936,51 @@ function renderInventoryMaterialsPanel() {
         fruits +
         "</span>" +
         '<p class="inv-mat-card__desc">灵果蕴妖灵之气。喂养<strong>出战灵宠</strong>一次：妖力 +1，用于推动年份进阶（幼年→十年→百年…）。</p>' +
+        '<div class="inv-mat-card__actions">' +
         '<button type="button" class="btn btn--sm btn--accent" id="inv-use-talent-fruit"' +
         (fruits < 1 ? ' disabled="disabled"' : "") +
         ">喂养出战灵宠</button>" +
+        '<button type="button" class="btn btn--sm btn--ghost" id="inv-use-talent-fruit-batch"' +
+        (fruits < 1 ? ' disabled="disabled"' : "") +
+        ">批量使用</button></div>" +
+        invMatMarketHtml(MATERIAL_TALENT_FRUIT, fruits) +
+        "</div></div>" +
+        '<div class="inv-mat-card inv-mat-card--pet-exp-fruit" role="group" aria-label="' +
+        petExpZh +
+        '">' +
+        '<div class="inv-mat-card__icon" aria-hidden="true"><i class="fas fa-lemon"></i></div>' +
+        '<div class="inv-mat-card__meta">' +
+        '<span class="inv-mat-card__name">' +
+        petExpZh +
+        "</span>" +
+        '<span class="inv-mat-card__count">持有 ' +
+        petFruits +
+        "</span>" +
+        '<p class="inv-mat-card__desc">服用后，接下来 <strong>' +
+        petDblPer +
+        "</strong> 场斗法中，出战灵宠从<strong>击杀修为分流</strong>获得的修为<strong>翻倍</strong>；重复使用可叠加剩余场次。秘境<strong>最后一劫</strong>镇守击败有概率获得。" +
+        (petDblRem > 0
+            ? '<span class="inv-mat-card__buff">当前剩余双倍场次：<strong>' + petDblRem + "</strong></span>"
+            : "") +
+        "</p>" +
+        '<button type="button" class="btn btn--sm btn--accent" id="inv-use-pet-exp-fruit"' +
+        (petFruits < 1 ? ' disabled="disabled"' : "") +
+        ">服用</button>" +
+        invMatMarketHtml(typeof MATERIAL_PET_EXP_FRUIT !== "undefined" ? MATERIAL_PET_EXP_FRUIT : petFruitKey, petFruits) +
         "</div></div>";
+    if (typeof window.DONGTIAN_CLOUD_MODE !== "undefined" && window.DONGTIAN_CLOUD_MODE) {
+        el.querySelectorAll(".inv-mat-card__market").forEach(function (btn) {
+            btn.addEventListener("click", function (ev) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                var k = btn.getAttribute("data-mat-key");
+                var mx = parseInt(btn.getAttribute("data-mat-max"), 10) || 0;
+                if (typeof window.dongtianMarketOpenSellMaterial === "function") {
+                    window.dongtianMarketOpenSellMaterial(k, mx);
+                }
+            });
+        });
+    }
     var usePack = document.getElementById("inv-use-gem-pack");
     if (usePack) {
         usePack.onclick = function () {
@@ -1186,6 +2019,64 @@ function renderInventoryMaterialsPanel() {
                 }
             }
             renderInventoryMaterialsPanel();
+        };
+    }
+
+    var usePackBatch = document.getElementById("inv-use-gem-pack-batch");
+    if (usePackBatch) {
+        usePackBatch.onclick = function () {
+            if (usePackBatch.disabled) return;
+            var maxP =
+                typeof getMaterialCount === "function" && typeof MATERIAL_GEM_PACK !== "undefined"
+                    ? getMaterialCount(MATERIAL_GEM_PACK)
+                    : 0;
+            if (maxP < 1) return;
+            var packLabel = typeof MATERIAL_GEM_PACK_ZH !== "undefined" ? MATERIAL_GEM_PACK_ZH : "宝石材料包";
+            openInvMatBatchQtyModal({
+                title: "批量启封 · " + packLabel,
+                hint: "请输入要启封的份数（1–" + maxP + "）",
+                max: maxP,
+                defaultN: Math.min(maxP, 10),
+                onConfirm: function (n) {
+                    var resBatch =
+                        typeof tryOpenGemMaterialPacksBatch === "function"
+                            ? tryOpenGemMaterialPacksBatch(n)
+                            : { ok: false, message: "不可用。" };
+                    if (!resBatch.ok) {
+                        if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
+                            defaultModalElement.style.display = "flex";
+                            defaultModalElement.innerHTML =
+                                '<div class="content"><p>' +
+                                (resBatch.message || "") +
+                                '</p><div class="button-container"><button type="button" id="gem-pack-batch-fail-ok">知晓</button></div></div>';
+                            var okf = document.querySelector("#gem-pack-batch-fail-ok");
+                            if (okf) {
+                                okf.onclick = function () {
+                                    defaultModalElement.style.display = "none";
+                                    defaultModalElement.innerHTML = "";
+                                };
+                            }
+                        }
+                        return;
+                    }
+                    if (typeof saveData === "function") saveData();
+                    if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
+                        defaultModalElement.style.display = "flex";
+                        defaultModalElement.innerHTML =
+                            '<div class="content"><p>' +
+                            (resBatch.message || "已启封。") +
+                            '</p><div class="button-container"><button type="button" id="gem-pack-batch-ok">知晓</button></div></div>';
+                        var okb = document.querySelector("#gem-pack-batch-ok");
+                        if (okb) {
+                            okb.onclick = function () {
+                                defaultModalElement.style.display = "none";
+                                defaultModalElement.innerHTML = "";
+                            };
+                        }
+                    }
+                    renderInventoryMaterialsPanel();
+                },
+            });
         };
     }
 
@@ -1233,6 +2124,150 @@ function renderInventoryMaterialsPanel() {
             renderInventoryMaterialsPanel();
         };
     }
+
+    var useFruitBatch = document.getElementById("inv-use-talent-fruit-batch");
+    if (useFruitBatch) {
+        useFruitBatch.onclick = function () {
+            if (useFruitBatch.disabled) return;
+            if (typeof getActivePet !== "function") return;
+            var petB = getActivePet();
+            if (!petB) {
+                if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
+                    defaultModalElement.style.display = "flex";
+                    defaultModalElement.innerHTML =
+                        '<div class="content"><p>尚无出战灵宠，无法喂养。</p><div class="button-container"><button type="button" id="talent-fruit-batch-no-pet-ok">知晓</button></div></div>';
+                    var oknp = document.querySelector("#talent-fruit-batch-no-pet-ok");
+                    if (oknp) {
+                        oknp.onclick = function () {
+                            defaultModalElement.style.display = "none";
+                            defaultModalElement.innerHTML = "";
+                        };
+                    }
+                }
+                return;
+            }
+            var maxF =
+                typeof getMaterialCount === "function" && typeof MATERIAL_TALENT_FRUIT !== "undefined"
+                    ? getMaterialCount(MATERIAL_TALENT_FRUIT)
+                    : 0;
+            if (maxF < 1) return;
+            openInvMatBatchQtyModal({
+                title: "批量喂养 · " + fruitZh,
+                hint: "请输入要喂养的天赋果数量（1–" + maxF + "）",
+                max: maxF,
+                defaultN: Math.min(maxF, 10),
+                onConfirm: function (nF) {
+                    if (typeof addMaterial === "function" && typeof MATERIAL_TALENT_FRUIT !== "undefined") {
+                        addMaterial(MATERIAL_TALENT_FRUIT, -nF);
+                    }
+                    var resB = typeof addPetYaoli === "function" ? addPetYaoli(petB, nF, "petPanel") : { ok: true };
+                    if (typeof saveData === "function") saveData();
+                    if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
+                        defaultModalElement.style.display = "flex";
+                        defaultModalElement.innerHTML =
+                            '<div class="content"><p>你以 <span class="Legendary">' +
+                            nF +
+                            "</span> 枚" +
+                            fruitZh +
+                            "喂养灵宠，妖力 +" +
+                            nF +
+                            "。" +
+                            (resB && resB.upgraded ? "<br/>灵息翻涌，年份竟有精进！" : "") +
+                            '</p><div class="button-container"><button type="button" id="talent-fruit-batch-ok">知晓</button></div></div>';
+                        var okfb = document.querySelector("#talent-fruit-batch-ok");
+                        if (okfb) {
+                            okfb.onclick = function () {
+                                defaultModalElement.style.display = "none";
+                                defaultModalElement.innerHTML = "";
+                            };
+                        }
+                    }
+                    renderInventoryMaterialsPanel();
+                },
+            });
+        };
+    }
+
+    var usePotion = document.getElementById("inv-use-life-potion");
+    if (usePotion) {
+        usePotion.onclick = function () {
+            if (usePotion.disabled) return;
+            if (typeof player === "undefined" || !player) return;
+            if (typeof getMaterialCount !== "function" || typeof addMaterial !== "function") return;
+            if (getMaterialCount(lifePotKey) < 1) return;
+            if (typeof calculateStats === "function") calculateStats();
+            if (typeof playerLoadStats === "function") playerLoadStats();
+            var cap = typeof player.stats.hpMax === "number" && isFinite(player.stats.hpMax) ? Math.max(1, Math.floor(player.stats.hpMax)) : 1;
+            var heal = Math.max(1, Math.round(cap * 0.5));
+            addMaterial(lifePotKey, -1);
+            var cur = typeof player.stats.hp === "number" && isFinite(player.stats.hp) ? player.stats.hp : 0;
+            player.stats.hp = Math.min(cap, cur + heal);
+            if (typeof playerLoadStats === "function") playerLoadStats();
+            if (typeof saveData === "function") saveData();
+            if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
+                defaultModalElement.style.display = "flex";
+                defaultModalElement.innerHTML =
+                    '<div class="content"><p>你服下<span class="Rare">' +
+                    potionZh +
+                    "</span>，气血回复 <b>" +
+                    nFormatter(heal) +
+                    "</b>（当前 " +
+                    nFormatter(player.stats.hp) +
+                    " / " +
+                    nFormatter(cap) +
+                    '）。</p><div class="button-container"><button type="button" id="life-potion-ok">知晓</button></div></div>';
+                var pok = document.querySelector("#life-potion-ok");
+                if (pok) {
+                    pok.onclick = function () {
+                        defaultModalElement.style.display = "none";
+                        defaultModalElement.innerHTML = "";
+                    };
+                }
+            }
+            renderInventoryMaterialsPanel();
+        };
+    }
+
+    var usePetExpFruit = document.getElementById("inv-use-pet-exp-fruit");
+    if (usePetExpFruit) {
+        usePetExpFruit.onclick = function () {
+            if (usePetExpFruit.disabled) return;
+            var res = typeof tryUsePetExpFruit === "function" ? tryUsePetExpFruit() : { ok: false, message: "不可用。" };
+            if (!res.ok) {
+                if (typeof defaultModalElement !== "undefined" && defaultModalElement && res.message) {
+                    defaultModalElement.style.display = "flex";
+                    defaultModalElement.innerHTML =
+                        '<div class="content"><p>' +
+                        res.message +
+                        '</p><div class="button-container"><button type="button" id="pet-exp-fruit-fail-ok">知晓</button></div></div>';
+                    var okf = document.querySelector("#pet-exp-fruit-fail-ok");
+                    if (okf) {
+                        okf.onclick = function () {
+                            defaultModalElement.style.display = "none";
+                            defaultModalElement.innerHTML = "";
+                        };
+                    }
+                }
+                return;
+            }
+            if (typeof saveData === "function") saveData();
+            if (typeof defaultModalElement !== "undefined" && defaultModalElement && res.message) {
+                defaultModalElement.style.display = "flex";
+                defaultModalElement.innerHTML =
+                    '<div class="content"><p>' +
+                    res.message +
+                    '</p><div class="button-container"><button type="button" id="pet-exp-fruit-ok">知晓</button></div></div>';
+                var okok = document.querySelector("#pet-exp-fruit-ok");
+                if (okok) {
+                    okok.onclick = function () {
+                        defaultModalElement.style.display = "none";
+                        defaultModalElement.innerHTML = "";
+                    };
+                }
+            }
+            renderInventoryMaterialsPanel();
+        };
+    }
 }
 
 function gemCardIconHtml(kind) {
@@ -1267,6 +2302,29 @@ function renderInventoryGemsPanel() {
             if (typeof effPct === "number" && isFinite(effPct)) {
                 effStr = String(Number(effPct.toFixed(2)));
             }
+            var gemFoot =
+                typeof gemKindEffectFootnoteZH === "function"
+                    ? gemKindEffectFootnoteZH(k)
+                    : "按先天道体折算";
+            var mergeBlock = canMerge
+                ? '<button type="button" class="btn btn--sm btn--accent inv-gem-merge-btn" data-gkind="' +
+                  k +
+                  '" data-glv="' +
+                  lv +
+                  '">三合一升阶</button>'
+                : '<p class="inv-gem-card__hint">' +
+                  (lv >= 12 ? "已达极品阶。" : "再集 <b>" + (3 - c) + "</b> 枚可淬合升阶。") +
+                  "</p>";
+            var splitBlock =
+                lv >= 2
+                    ? '<button type="button" class="btn btn--sm btn--ghost inv-gem-split-btn" data-gkind="' +
+                      k +
+                      '" data-glv="' +
+                      lv +
+                      '">拆为三枚' +
+                      (lv - 1) +
+                      "阶</button>"
+                    : "";
             rows.push(
                 '<div class="inv-gem-card inv-gem-card--' +
                     k +
@@ -1292,17 +2350,12 @@ function renderInventoryGemsPanel() {
                     "</span>" +
                     '<p class="inv-gem-card__eff">镶嵌效用 <strong>+' +
                     effStr +
-                    "%</strong>（按先天道体折算）</p>" +
-                    (canMerge
-                        ? '<button type="button" class="btn btn--sm btn--accent inv-gem-merge-btn" data-gkind="' +
-                          k +
-                          '" data-glv="' +
-                          lv +
-                          '">三合一升阶</button>'
-                        : '<p class="inv-gem-card__hint">' +
-                          (lv >= 12 ? "已达极品阶。" : "再集 <b>" + (3 - c) + "</b> 枚可淬合升阶。") +
-                          "</p>") +
-                    "</div></div>"
+                    "%</strong>（" +
+                    gemFoot +
+                    '）</p><div class="inv-gem-card__actions">' +
+                    mergeBlock +
+                    splitBlock +
+                    "</div></div></div>"
             );
         }
     }
@@ -1338,6 +2391,59 @@ function renderInventoryGemsPanel() {
             };
         })(merges[mi]);
     }
+    var splits = gel.querySelectorAll(".inv-gem-split-btn");
+    for (var si = 0; si < splits.length; si++) {
+        splits[si].onclick = (function (b) {
+            return function () {
+                var kk = b.getAttribute("data-gkind");
+                var ll = Math.floor(Number(b.getAttribute("data-glv")) || 2);
+                var res = typeof trySplitGemsInInventory === "function" ? trySplitGemsInInventory(kk, ll) : { ok: false };
+                if (!res.ok) return;
+                if (typeof saveData === "function") saveData();
+                if (typeof defaultModalElement !== "undefined" && defaultModalElement && res.message) {
+                    defaultModalElement.style.display = "flex";
+                    defaultModalElement.innerHTML =
+                        '<div class="content"><p>' +
+                        res.message +
+                        '</p><div class="button-container"><button type="button" id="gem-split-ok">知晓</button></div></div>';
+                    var oks = document.querySelector("#gem-split-ok");
+                    if (oks) {
+                        oks.onclick = function () {
+                            defaultModalElement.style.display = "none";
+                            defaultModalElement.innerHTML = "";
+                        };
+                    }
+                }
+                if (typeof showInventory === "function") showInventory();
+                else if (typeof renderInventoryGemsPanel === "function") renderInventoryGemsPanel();
+            };
+        })(splits[si]);
+    }
+    var mergeAllBtn = document.getElementById("inv-gem-merge-all");
+    if (mergeAllBtn) {
+        mergeAllBtn.onclick = function () {
+            if (typeof tryMergeAllGemsInInventoryToMax !== "function") return;
+            var res = tryMergeAllGemsInInventoryToMax();
+            if (!res || !res.message) return;
+            if (res.ok && typeof saveData === "function") saveData();
+            if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
+                defaultModalElement.style.display = "flex";
+                defaultModalElement.innerHTML =
+                    '<div class="content"><p>' +
+                    res.message +
+                    '</p><div class="button-container"><button type="button" id="gem-merge-all-ok">知晓</button></div></div>';
+                var oka = document.querySelector("#gem-merge-all-ok");
+                if (oka) {
+                    oka.onclick = function () {
+                        defaultModalElement.style.display = "none";
+                        defaultModalElement.innerHTML = "";
+                    };
+                }
+            }
+            if (typeof showInventory === "function") showInventory();
+            else if (typeof renderInventoryGemsPanel === "function") renderInventoryGemsPanel();
+        };
+    }
 }
 
 function equipmentStatDiffClass(nv, ov) {
@@ -1346,6 +2452,26 @@ function equipmentStatDiffClass(nv, ov) {
     if (n > o) return "eq-diff--up";
     if (n < o) return "eq-diff--down";
     return "eq-diff--same";
+}
+
+/** 境界名 + 神萃等级（如 炼气·4层 +7） */
+function formatEquipmentRealmWithDivine(it) {
+    var r = typeof cultivationRealmLabel === "function" ? cultivationRealmLabel(it.lvl) : "";
+    var lv = typeof getDivineExtractLvl === "function" ? getDivineExtractLvl(it) : 0;
+    if (lv > 0) return r + " +" + lv;
+    return r;
+}
+
+function formatEquipmentDivineMetaHtml(it) {
+    var lv = typeof getDivineExtractLvl === "function" ? getDivineExtractLvl(it) : 0;
+    if (lv <= 0) return "";
+    return (
+        '<p class="eq-meta-divine">神萃：+<strong>' +
+        lv +
+        "</strong>（全属性 +" +
+        lv * 2 +
+        "%）</p>"
+    );
 }
 
 /** 换穿后相对当前已装备：Δ = 行囊值 − 已装备值（仅在有已装备时展示） */
@@ -1373,6 +2499,14 @@ function buildEquipmentCompareHtml(item, icon, rx) {
     var mapOld = equippedItem ? equipmentStatsToMap(equippedItem.stats) : {};
     mergeEquipmentBonusMap(mapNew, getArmorClassBonusMap(item));
     mergeEquipmentBonusMap(mapOld, getArmorClassBonusMap(equippedItem));
+    var mulN = typeof getDivineExtractStatMul === "function" ? getDivineExtractStatMul(item) : 1;
+    var mulO = equippedItem && typeof getDivineExtractStatMul === "function" ? getDivineExtractStatMul(equippedItem) : 1;
+    Object.keys(mapNew).forEach(function (k) {
+        mapNew[k] = (Number(mapNew[k]) || 0) * mulN;
+    });
+    Object.keys(mapOld).forEach(function (k) {
+        mapOld[k] = (Number(mapOld[k]) || 0) * mulO;
+    });
     var keys = equipmentOrderedStatKeys(mapNew, mapOld);
     var slotLbl = EQUIP_SLOT_TYPE_LABEL_ZH[item.type] || item.type;
 
@@ -1427,7 +2561,7 @@ function buildEquipmentCompareHtml(item, icon, rx) {
           " " +
           weaponOrArmorDisplayName(equippedItem) +
           " " +
-          cultivationRealmLabel(equippedItem.lvl) +
+          formatEquipmentRealmWithDivine(equippedItem) +
           "</h3>"
         : '<p class="eq-compare__slot-empty">该「' + slotLbl + '」槽位未穿戴</p>';
 
@@ -1447,10 +2581,11 @@ function buildEquipmentCompareHtml(item, icon, rx) {
         " " +
         weaponOrArmorDisplayName(item) +
         " " +
-        cultivationRealmLabel(item.lvl) +
+        formatEquipmentRealmWithDivine(item) +
         "</h3>" +
         formatEquipmentEnhanceMetaHtml(item) +
         formatEquipmentEnchantMetaHtml(item) +
+        formatEquipmentDivineMetaHtml(item) +
         formatEquipmentPassiveBonusMetaHtml(item) +
         formatArmorClassBonusMetaHtml(item) +
         '<ul class="eq-compare__ul">' +
@@ -1464,6 +2599,7 @@ function buildEquipmentCompareHtml(item, icon, rx) {
         oldTitle +
         (equippedItem ? formatEquipmentEnhanceMetaHtml(equippedItem) : "") +
         (equippedItem ? formatEquipmentEnchantMetaHtml(equippedItem) : "") +
+        (equippedItem ? formatEquipmentDivineMetaHtml(equippedItem) : "") +
         (equippedItem ? formatArmorClassBonusMetaHtml(equippedItem) : "") +
         (equippedItem && oldRows ? '<ul class="eq-compare__ul">' + oldRows + "</ul>" : "") +
         (equippedItem && typeof formatEquipmentGemSlotsHtml === "function" ? formatEquipmentGemSlotsHtml(equippedItem) : "") +
@@ -1474,19 +2610,21 @@ function buildEquipmentCompareHtml(item, icon, rx) {
 }
 
 function buildEquipmentSingleHtml(item, icon, rx) {
+    var dMul = typeof getDivineExtractStatMul === "function" ? getDivineExtractStatMul(item) : 1;
     var lines = item.stats
         .map(function (stat) {
             var k = Object.keys(stat)[0];
+            var v = (Number(stat[k]) || 0) * dMul;
             if (k === "critRate" || k === "critDmg" || k === "atkSpd" || k === "vamp") {
                 return (
                     "<li>" +
                     formatEquipmentStatKeyLabel(k) +
                     "+" +
-                    stat[k].toFixed(2).replace(rx, "$1") +
+                    v.toFixed(2).replace(rx, "$1") +
                     "%</li>"
                 );
             }
-            return "<li>" + formatEquipmentStatKeyLabel(k) + "+" + stat[k] + "</li>";
+            return "<li>" + formatEquipmentStatKeyLabel(k) + "+" + Math.round(v) + "</li>";
         })
         .join("");
     return (
@@ -1498,10 +2636,11 @@ function buildEquipmentSingleHtml(item, icon, rx) {
         " " +
         weaponOrArmorDisplayName(item) +
         " " +
-        cultivationRealmLabel(item.lvl) +
+        formatEquipmentRealmWithDivine(item) +
         "</h3>" +
         formatEquipmentEnhanceMetaHtml(item) +
         formatEquipmentEnchantMetaHtml(item) +
+        formatEquipmentDivineMetaHtml(item) +
         formatEquipmentPassiveBonusMetaHtml(item) +
         formatArmorClassBonusMetaHtml(item) +
         "<ul>" +
@@ -1655,10 +2794,15 @@ const showItemInfo = (item, icon, type, i) => {
         var enchSRaw = typeof item.enchantTier === "number" ? item.enchantTier : Number(item.enchantTier);
         var enchPRaw = typeof item.enchantPct === "number" ? item.enchantPct : Number(item.enchantPct);
         var enchS = isFinite(enchSRaw) ? Math.max(1, Math.min(4, Math.floor(enchSRaw))) : 0;
-        var enchP = isFinite(enchPRaw) ? Math.max(1, Math.min(20, Math.floor(enchPRaw))) : 0;
+        var enchCap = typeof ENCHANT_PCT_ROLL_MAX === "number" ? ENCHANT_PCT_ROLL_MAX : 50;
+        var enchP = isFinite(enchPRaw) ? Math.max(1, Math.min(enchCap, Math.floor(enchPRaw))) : 0;
         var enchStones2 = getMaterialCount(MATERIAL_ENCHANT_STONE);
+        var enchCostNext =
+            typeof getEnchantStoneCostForNext === "function"
+                ? getEnchantStoneCostForNext(item)
+                : 1;
         var hasEnchant = enchS > 0 && enchP > 0;
-        var canEnchant = enchStones2 >= 1;
+        var canEnchant = enchStones2 >= enchCostNext;
         enchantBlock =
             '<div class="eq-enhance-block eq-enchant-block">' +
             '<p class="eq-enhance-block__title">遗器附魔</p>' +
@@ -1671,21 +2815,94 @@ const showItemInfo = (item, icon, type, i) => {
                   enchP +
                   "%</strong>（基于当前强化属性）</p>"
                 : "") +
-            '<p class="eq-enhance-block__line">消耗 1 枚<strong>附魔石</strong>，提升当前装备属性。</p>' +
+            '<p class="eq-enhance-block__line">消耗 <strong>' +
+            enchCostNext +
+            '</strong> 枚<strong>附魔石</strong>（每次成功后再附魔 +1 枚，上限 10 枚）。</p>' +
             '<p class="eq-enhance-block__line eq-enhance-block__muted">可多次重铸附魔，新结果会覆盖旧附魔。</p>' +
             '<button type="button" id="eq-enchant-btn" class="btn btn--sm btn--accent eq-enhance-block__btn"' +
             (canEnchant ? "" : ' disabled="disabled" title="附魔石不足"') +
-            ">进行附魔（附魔石 " +
+            ">进行附魔（需 " +
+            enchCostNext +
+            " 枚 · 持有 " +
             enchStones2 +
             "）</button></div>";
     }
-    var enhanceEnchantRow = enhanceBlock || enchantBlock ? '<div class="eq-enhance-row">' + enhanceBlock + enchantBlock + "</div>" : "";
+    var divineBlock = "";
+    var _godEssKey =
+        (typeof window !== "undefined" && window.MATERIAL_GOD_ESSENCE_STONE) ||
+        (typeof MATERIAL_GOD_ESSENCE_STONE !== "undefined" ? MATERIAL_GOD_ESSENCE_STONE : "god_essence_stone");
+    var _tryGodFn =
+        (typeof tryGodEssenceInventoryItem === "function" && tryGodEssenceInventoryItem) ||
+        (typeof window !== "undefined" && typeof window.tryGodEssenceInventoryItem === "function"
+            ? window.tryGodEssenceInventoryItem
+            : null);
+    var _getDivineLvlFn =
+        (typeof getDivineExtractLvl === "function" && getDivineExtractLvl) ||
+        (typeof window !== "undefined" && typeof window.getDivineExtractLvl === "function" ? window.getDivineExtractLvl : null);
+    var _divineCostFn =
+        (typeof getDivineExtractStoneCostForNextAttempt === "function" && getDivineExtractStoneCostForNextAttempt) ||
+        (typeof window !== "undefined" && typeof window.getDivineExtractStoneCostForNextAttempt === "function"
+            ? window.getDivineExtractStoneCostForNextAttempt
+            : null);
+    var _divinePctFn =
+        (typeof getDivineExtractSuccessPctForCurrentLvl === "function" && getDivineExtractSuccessPctForCurrentLvl) ||
+        (typeof window !== "undefined" && typeof window.getDivineExtractSuccessPctForCurrentLvl === "function"
+            ? window.getDivineExtractSuccessPctForCurrentLvl
+            : null);
+    if (
+        (type === "Equip" || type === "Unequip") &&
+        _tryGodFn &&
+        typeof getMaterialCount === "function" &&
+        _getDivineLvlFn &&
+        _divineCostFn &&
+        _divinePctFn
+    ) {
+        var lvD = _getDivineLvlFn(item);
+        var stonesG = getMaterialCount(_godEssKey);
+        var nextCost = lvD >= 100 ? 0 : _divineCostFn(lvD);
+        var succPct = lvD >= 100 ? 0 : _divinePctFn(lvD);
+        var canDiv = lvD < 100 && stonesG >= nextCost;
+        divineBlock =
+            '<div class="eq-enhance-block eq-divine-block">' +
+            '<p class="eq-enhance-block__title">神萃</p>' +
+            (lvD >= 100
+                ? '<p class="eq-enhance-block__muted">已达 +100（全属性 +200%）。</p>'
+                : '<p class="eq-enhance-block__line">消耗 <strong>' +
+                  nextCost +
+                  '</strong> 枚<strong>神萃石</strong>，尝试神萃 +1。成功率 <strong>' +
+                  succPct +
+                  "%</strong>。</p>" +
+                  '<p class="eq-enhance-block__line eq-enhance-block__muted">神萃石：<strong>每 10 级档位消耗 +1 枚</strong>（本件当前 +' +
+                  lvD +
+                  "，故本次 " +
+                  nextCost +
+                  " 枚）。失败时按神萃等级可能跌落若干级；神萃未满 10 时不掉级。</p>"
+            ) +
+            '<button type="button" id="eq-divine-btn" class="btn btn--sm btn--accent eq-enhance-block__btn"' +
+            (lvD >= 100 || !canDiv ? ' disabled="disabled"' : "") +
+            ' title="' +
+            (lvD >= 100 ? "已满" : !canDiv ? "神萃石不足" : "") +
+            '"><i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i> 神萃（需 ' +
+            nextCost +
+            " 枚 · 持有 " +
+            stonesG +
+            "）</button></div>";
+    }
+    var enhanceEnchantRow =
+        enhanceBlock || enchantBlock || divineBlock
+            ? '<div class="eq-enhance-row">' + enhanceBlock + enchantBlock + divineBlock + "</div>"
+            : "";
     var gemSocketRow = "";
     if ((type === "Equip" || type === "Unequip") && typeof buildEquipmentGemSocketControlsHtml === "function") {
         gemSocketRow = buildEquipmentGemSocketControlsHtml(item);
     }
     itemInfo.innerHTML = `
             <div class="${contentClass}">
+                <div class="eq-item-info__head">
+                    <button type="button" id="close-item-info-head" class="icon-btn icon-btn--inv-close" title="关闭" aria-label="关闭">
+                        <i class="fa fa-xmark" aria-hidden="true"></i>
+                    </button>
+                </div>
                 ${mainBlock}
                 ${enhanceEnchantRow}
                 ${gemSocketRow}
@@ -1815,6 +3032,72 @@ const showItemInfo = (item, icon, type, i) => {
                 }
             } else {
                 showItemInfo(live, ic3, type, i);
+            }
+        };
+    }
+
+    var divineBtn = document.querySelector("#eq-divine-btn");
+    var _tryGodForClick =
+        (typeof tryGodEssenceInventoryItem === "function" && tryGodEssenceInventoryItem) ||
+        (typeof window !== "undefined" && typeof window.tryGodEssenceInventoryItem === "function"
+            ? window.tryGodEssenceInventoryItem
+            : null);
+    if (divineBtn && _tryGodForClick) {
+        divineBtn.onclick = function () {
+            if (divineBtn.disabled) return;
+            var live =
+                type === "Equip" && player.inventory && player.inventory.equipment[i] !== undefined
+                    ? JSON.parse(player.inventory.equipment[i])
+                    : type === "Unequip" && player.equipped && player.equipped[i]
+                      ? player.equipped[i]
+                      : item;
+            var res = _tryGodForClick(live);
+            if (!res.ok) {
+                if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
+                    defaultModalElement.style.display = "flex";
+                    defaultModalElement.innerHTML =
+                        '<div class="content"><p>' +
+                        (res.message || "无法神萃。") +
+                        '</p><div class="button-container"><button type="button" id="eq-div-fail-ok">知晓</button></div></div>';
+                    var okdf = document.querySelector("#eq-div-fail-ok");
+                    if (okdf) {
+                        okdf.onclick = function () {
+                            defaultModalElement.style.display = "none";
+                            defaultModalElement.innerHTML = "";
+                        };
+                    }
+                }
+                return;
+            }
+            if (type === "Equip") {
+                replaceInventoryEquipmentAtIndex(i, live);
+            } else if (type === "Unequip") {
+                player.equipped[i] = live;
+            }
+            if (typeof applyEquipmentStats === "function") applyEquipmentStats();
+            if (typeof saveData === "function") saveData();
+            if (typeof showInventory === "function") showInventory();
+            if (typeof showEquipment === "function") showEquipment();
+            var ic4 = equipmentIcon(live.category);
+            if (typeof defaultModalElement !== "undefined" && defaultModalElement && res.message) {
+                itemInfo.style.display = "none";
+                defaultModalElement.style.display = "flex";
+                defaultModalElement.innerHTML =
+                    '<div class="content eq-enhance-result"><p>' +
+                    res.message +
+                    '</p><div class="button-container"><button type="button" id="eq-div-res-ok">知晓</button></div></div>';
+                var okdr = document.querySelector("#eq-div-res-ok");
+                if (okdr) {
+                    okdr.onclick = function () {
+                        defaultModalElement.style.display = "none";
+                        defaultModalElement.innerHTML = "";
+                        itemInfo.style.display = "flex";
+                        dimContainer.style.filter = "brightness(50%)";
+                        showItemInfo(live, ic4, type, i);
+                    };
+                }
+            } else {
+                showItemInfo(live, ic4, type, i);
             }
         };
     }
@@ -2082,15 +3365,64 @@ const showItemInfo = (item, icon, type, i) => {
         }
     };
 
-    // Close item info
-    let close = document.querySelector("#close-item-info");
-    close.onclick = function () {
-
+    // Close item info（底部「关闭」与右上角 × 行为一致）
+    function closeItemInfoPanel() {
         itemInfo.style.display = "none";
         dimContainer.style.filter = "brightness(100%)";
         continueExploring();
-    };
+    }
+    var closeFoot = document.querySelector("#close-item-info");
+    var closeHead = document.querySelector("#close-item-info-head");
+    if (closeFoot) closeFoot.onclick = closeItemInfoPanel;
+    if (closeHead) closeHead.onclick = closeItemInfoPanel;
 }
+
+/**
+ * 修仙市场：只读查看挂单遗器完整属性（不读写背包）
+ */
+function showMarketEquipPreview(item) {
+    if (!item || typeof item !== "object") return;
+    try {
+        item = JSON.parse(JSON.stringify(item));
+    } catch (e) {}
+    var itemInfo = document.querySelector("#equipmentInfo");
+    if (!itemInfo) return;
+    var rx = /\.0+$|(\.[0-9]*[1-9])0+$/;
+    var icon = equipmentIcon(item.category);
+    var mainBlock = buildEquipmentSingleHtml(item, icon, rx);
+    dungeon.status.exploring = false;
+    itemInfo.style.display = "flex";
+    itemInfo.style.zIndex = "5080";
+    itemInfo.classList.add("modal-container--market-preview");
+    itemInfo.innerHTML =
+        '<div class="content">' +
+        '<p class="xiu-market-preview-hint">挂单预览 · 仅展示属性，非你行囊中的物品</p>' +
+        mainBlock +
+        '<div class="button-container"><button type="button" id="close-market-equip-preview">关闭</button></div></div>';
+    var xiuM = document.getElementById("xiuMarketModal");
+    var sellM = document.getElementById("xiuMarketSellModal");
+    if (xiuM && xiuM.style.display === "flex") xiuM.style.filter = "brightness(55%)";
+    if (sellM && sellM.style.display === "flex") sellM.style.filter = "brightness(55%)";
+    var dimDungeon = document.querySelector("#dungeon-main");
+    if (dimDungeon) dimDungeon.style.filter = "brightness(92%)";
+    var inv = document.querySelector("#inventory");
+    if (inv && inv.style.display === "flex") inv.style.filter = "brightness(55%)";
+    var btn = document.getElementById("close-market-equip-preview");
+    if (btn) {
+        btn.onclick = function () {
+            itemInfo.style.display = "none";
+            itemInfo.style.zIndex = "";
+            itemInfo.classList.remove("modal-container--market-preview");
+            itemInfo.innerHTML = "";
+            if (xiuM) xiuM.style.filter = "";
+            if (sellM) sellM.style.filter = "";
+            if (dimDungeon) dimDungeon.style.filter = "";
+            if (inv) inv.style.filter = "";
+            if (typeof continueExploring === "function") continueExploring();
+        };
+    }
+}
+window.showMarketEquipPreview = showMarketEquipPreview;
 
 function learnSectPassive(id) {
     if (typeof PASSIVE_BY_ID === "undefined" || !player) return;
@@ -2203,6 +3535,13 @@ function renderSectPassivePanel(containerId) {
         var pLv = isLearned && typeof getPassiveEffectiveLevel === "function"
             ? getPassiveEffectiveLevel(p.id)
             : (pBaseLv + pEqLvRaw);
+        if (isLearned && (!pLv || pLv < 1)) {
+            pLv = Math.max(1, pBaseLv + pEqLvRaw);
+        }
+        if (isLearned) {
+            var capPassive = typeof PASSIVE_LEVEL_MAX === "number" && PASSIVE_LEVEL_MAX > 0 ? PASSIVE_LEVEL_MAX : 10;
+            if (pLv > capPassive) pLv = capPassive;
+        }
         var pEqLv = Math.max(0, pLv - pBaseLv);
         var cardCls = "sect-ui__card";
         if (isEq) cardCls += " sect-ui__card--on";
@@ -2220,12 +3559,32 @@ function renderSectPassivePanel(containerId) {
         html += "<span class=\"sect-ui__pill\">" + sectHtmlEscape(cultivationRealmLabel(p.reqLvl)) + "</span>";
         html += "<span class=\"" + costCls + "\"><i class=\"fas fa-coins\" aria-hidden=\"true\"></i>" + costLabel + "</span>";
         if (isLearned) {
-            var maxLv = (typeof PASSIVE_LEVEL_MAX === "number" && PASSIVE_LEVEL_MAX > 0) ? PASSIVE_LEVEL_MAX : 20;
+            var maxLv = (typeof PASSIVE_LEVEL_MAX === "number" && PASSIVE_LEVEL_MAX > 0) ? PASSIVE_LEVEL_MAX : 10;
             var maxTag = pLv >= maxLv ? " MAX" : "";
             html += "<span class=\"sect-ui__pill\">功法 " + pLv + " 级" + maxTag + (pEqLv > 0 ? "（装备+" + pEqLv + (pEqLvRaw > pEqLv ? "，已达上限" : "") + "）" : "") + "</span>";
         }
         html += "</div>";
-        html += "<p class=\"sect-ui__desc\">" + sectHtmlEscape(p.desc) + "</p>";
+        var passiveDef =
+            typeof PASSIVE_BY_ID !== "undefined" && p && p.id != null && PASSIVE_BY_ID[p.id]
+                ? PASSIVE_BY_ID[p.id]
+                : p;
+        var descBody = passiveDef.desc || "";
+        if (isLearned) {
+            var effLvShow = Math.max(1, Math.floor(Number(pLv) || 1));
+            if (
+                passiveDef.effects &&
+                passiveDef.effects.length &&
+                typeof describePassiveEffectsScaled === "function"
+            ) {
+                var flavorPart = passiveDef.flavor != null ? passiveDef.flavor : "";
+                if (!flavorPart && passiveDef.desc) {
+                    var ixF = passiveDef.desc.indexOf("】");
+                    flavorPart = ixF >= 0 ? passiveDef.desc.slice(0, ixF + 1) : "";
+                }
+                descBody = flavorPart + describePassiveEffectsScaled(passiveDef.effects, effLvShow);
+            }
+        }
+        html += "<p class=\"sect-ui__desc\">" + sectHtmlEscape(descBody) + "</p>";
         html += "<div class=\"sect-ui__foot\">";
         if (!isLearned) {
             html += "<button type=\"button\" class=\"btn btn--sm btn--primary sect-ui__btn\" data-learn=\"" + p.id + "\"" + (canLearn ? "" : " disabled") + why + ">领悟</button>";
@@ -2310,6 +3669,7 @@ const showInventory = () => {
     if (autoBatchCb) {
         autoBatchCb.checked = !!player.inventory.autoBatchSell;
     }
+    syncInventorySellRarityDom();
     let playerInventoryList = document.getElementById("playerInventory");
     playerInventoryList.innerHTML = "";
 
@@ -2388,6 +3748,21 @@ const showInventory = () => {
             }
         });
 
+        if (typeof window.DONGTIAN_CLOUD_MODE !== "undefined" && window.DONGTIAN_CLOUD_MODE) {
+            var mkBtn = document.createElement("button");
+            mkBtn.type = "button";
+            mkBtn.className = "inv-slot__market btn btn--sm btn--ghost";
+            mkBtn.textContent = "上架";
+            mkBtn.title = "上架至修仙市场（联网币）";
+            mkBtn.addEventListener("click", function (ev) {
+                ev.stopPropagation();
+                if (typeof window.dongtianMarketOpenSellEquip === "function") {
+                    window.dongtianMarketOpenSellEquip(i);
+                }
+            });
+            itemDiv.appendChild(mkBtn);
+        }
+
         playerInventoryList.appendChild(itemDiv);
     }
 
@@ -2455,6 +3830,11 @@ const applyEquipmentStats = () => {
         atk: 0,
         def: 0,
         atkSpd: 0,
+        gemPctHp: 0,
+        gemPctAtk: 0,
+        gemPctDef: 0,
+        gemAtkSpdPct: 0,
+        gemCritDmgPts: 0,
         vamp: 0,
         critRate: 0,
         critDmg: 0
@@ -2464,11 +3844,15 @@ const applyEquipmentStats = () => {
         const item = player.equipped[i];
         if (!item || !Array.isArray(item.stats)) continue;
 
+        var dMul = typeof getDivineExtractStatMul === "function" ? getDivineExtractStatMul(item) : 1;
+
         // Iterate through the stats array and update the player stats
         item.stats.forEach(stat => {
             for (const key in stat) {
+                if (!EQUIP_ITEM_STAT_KEY_SET[key]) continue;
                 var val = Number(stat[key]);
                 if (!isFinite(val)) continue;
+                val *= dMul;
                 if (typeof player.equippedStats[key] !== "number") player.equippedStats[key] = 0;
                 player.equippedStats[key] += val;
             }
@@ -2478,8 +3862,10 @@ const applyEquipmentStats = () => {
         var armorClassBonus = getArmorClassBonusMap(item);
         if (armorClassBonus) {
             for (const bonusKey in armorClassBonus) {
+                if (!EQUIP_ITEM_STAT_KEY_SET[bonusKey]) continue;
                 var bonusVal = Number(armorClassBonus[bonusKey]);
                 if (!isFinite(bonusVal)) continue;
+                bonusVal *= dMul;
                 if (typeof player.equippedStats[bonusKey] !== "number") player.equippedStats[bonusKey] = 0;
                 player.equippedStats[bonusKey] += bonusVal;
             }
@@ -2553,7 +3939,18 @@ const sellAll = (rarity) => {
 
 const createEquipmentPrint = (condition) => {
     let rx = /\.0+$|(\.[0-9]*[1-9])0+$/;
-    let item = createEquipment();
+    var craftOpts = {};
+    if (
+        condition === "combat" &&
+        typeof enemy !== "undefined" &&
+        enemy &&
+        typeof enemy.lvl === "number" &&
+        isFinite(enemy.lvl) &&
+        enemy.lvl > 0
+    ) {
+        craftOpts.forceLvl = enemy.lvl;
+    }
+    let item = createEquipment(craftOpts);
     if (!item) {
         if (condition == "combat") {
             addCombatLog("行囊已满，无法纳下更多遗器。");
@@ -2564,7 +3961,7 @@ const createEquipmentPrint = (condition) => {
     }
     let panel = `
         <div class="primary-panel" style="padding: 0.5rem; margin-top: 0.5rem;">
-                <h4 class="${item.rarity}">${item.icon}${equipmentRarityLabel(item.rarity)} ${weaponOrArmorDisplayName(item)} ${cultivationRealmLabel(item.lvl)}</h4>
+                <h4 class="${item.rarity}">${item.icon}${equipmentRarityLabel(item.rarity)} ${weaponOrArmorDisplayName(item)} ${formatEquipmentRealmWithDivine(item)}</h4>
                 ${formatEquipmentPassiveBonusMetaHtml(item)}
                 ${formatArmorClassBonusMetaHtml(item)}
                 <ul>
@@ -2604,6 +4001,19 @@ const createEquipmentPrint = (condition) => {
     });
 })();
 
+(function initInventorySellRarityPersist() {
+    var sel = document.getElementById("sell-rarity");
+    if (!sel || sel._invSellRarityBound) return;
+    sel._invSellRarityBound = true;
+    sel.addEventListener("change", function () {
+        if (typeof player === "undefined" || player === null) return;
+        ensureInventoryUiFilters();
+        player.inventory.autoBatchSellRarity = sel.value;
+        sel.className = "select-field select-field--inv " + (sel.value === "All" ? "Common" : sel.value);
+        if (typeof saveData === "function") saveData();
+    });
+})();
+
 (function initInventoryBagFilters() {
     var vr = document.getElementById("inv-view-rarity");
     var vt = document.getElementById("inv-view-type");
@@ -2639,3 +4049,10 @@ const createEquipmentPrint = (condition) => {
         });
     });
 })();
+
+if (typeof window !== "undefined") {
+    window.computeEquipmentDungeonIndependentCaps = computeEquipmentDungeonIndependentCaps;
+    window.getEquipmentNormalDiceEvenSpread7Reference = getEquipmentNormalDiceEvenSpread7Reference;
+    window.getEquipmentNormalDiceEvenSpread7AllRarities = getEquipmentNormalDiceEvenSpread7AllRarities;
+    window.EQUIPMENT_RARITY_IDS_FOR_NORMAL_DICE = EQUIPMENT_RARITY_IDS_FOR_NORMAL_DICE;
+}
