@@ -139,6 +139,9 @@
         if (typeof MATERIAL_PET_EXP_FRUIT !== "undefined") {
             map[MATERIAL_PET_EXP_FRUIT] = typeof MATERIAL_PET_EXP_FRUIT_ZH !== "undefined" ? MATERIAL_PET_EXP_FRUIT_ZH : "灵宠经验果实";
         }
+        if (typeof MATERIAL_SECRET_REALM_WARP !== "undefined") {
+            map[MATERIAL_SECRET_REALM_WARP] = typeof MATERIAL_SECRET_REALM_WARP_ZH !== "undefined" ? MATERIAL_SECRET_REALM_WARP_ZH : "秘境穿梭器";
+        }
         return map[k] || k;
     }
 
@@ -167,6 +170,7 @@
             talent_fruit: "喂养出战灵宠，增加妖力以推动年份进阶。",
             life_potion: "服用后恢复气血上限的 50%。头领及以上妖躯有概率掉落。",
             pet_exp_fruit: "服用后多场斗法中灵宠击杀修为翻倍，可叠加。仅最后一劫镇守概率掉落。",
+            secret_realm_warp: "劫数20的BOSS有50%概率掉落。用于秘境层间穿梭。",
         };
         var hint = hints[hk] || "洞天劫材料，购入后将进入你的行囊材料栏。";
         dungeon.status.exploring = false;
@@ -233,6 +237,7 @@
                 talent_fruit: "喂养灵宠，增加妖力以进阶年份",
                 life_potion: "服用恢复气血 50%",
                 pet_exp_fruit: "灵宠击杀修为翻倍（多场，可叠加）",
+                secret_realm_warp: "劫数20的BOSS有50%概率掉落",
             };
             var hk = String(r.materialKey || "");
             return hints[hk] || "洞天劫材料";

@@ -74,6 +74,9 @@ function ensureInventoryMaterials() {
     if (typeof MATERIAL_PET_EXP_FRUIT !== "undefined" && (typeof player.inventory.materials[MATERIAL_PET_EXP_FRUIT] !== "number" || isNaN(player.inventory.materials[MATERIAL_PET_EXP_FRUIT]))) {
         player.inventory.materials[MATERIAL_PET_EXP_FRUIT] = 0;
     }
+    if (typeof MATERIAL_SECRET_REALM_WARP !== "undefined" && (typeof player.inventory.materials[MATERIAL_SECRET_REALM_WARP] !== "number" || isNaN(player.inventory.materials[MATERIAL_SECRET_REALM_WARP]))) {
+        player.inventory.materials[MATERIAL_SECRET_REALM_WARP] = 0;
+    }
 }
 
 function getMaterialCount(id) {

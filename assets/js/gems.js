@@ -13,8 +13,12 @@ const MATERIAL_LIFE_POTION_ZH = "生命药剂";
 const MATERIAL_PET_EXP_FRUIT = "pet_exp_fruit";
 const MATERIAL_PET_EXP_FRUIT_ZH = "灵宠经验果实";
 const PET_EXP_DOUBLE_COMBATS_PER_FRUIT = 100;
+const MATERIAL_SECRET_REALM_WARP = "secret_realm_warp";
+const MATERIAL_SECRET_REALM_WARP_ZH = "秘境穿梭器";
 /** 秘境最后一劫镇守（guardian）击杀时的掉落概率 */
 const PET_EXP_FRUIT_GUARDIAN_DROP_CHANCE = 0.1;
+/** 劫数 20 的 BOSS（镇守/主宰）击杀时，秘境穿梭器掉落概率 */
+const SECRET_REALM_WARP_BOSS_DROP_CHANCE = 0.5;
 /** 妖躯品质档 ≥ 此索引（0=凡物 … 5=头领）时可有概率掉落 */
 const LIFE_POTION_MIN_QUALITY_TIER = 5;
 const LIFE_POTION_DROP_CHANCE = 0.02;
@@ -64,6 +68,11 @@ function ensureGemMaterialsInInventory() {
     if (typeof MATERIAL_PET_EXP_FRUIT !== "undefined") {
         if (typeof player.inventory.materials[MATERIAL_PET_EXP_FRUIT] !== "number" || isNaN(player.inventory.materials[MATERIAL_PET_EXP_FRUIT])) {
             player.inventory.materials[MATERIAL_PET_EXP_FRUIT] = 0;
+        }
+    }
+    if (typeof MATERIAL_SECRET_REALM_WARP !== "undefined") {
+        if (typeof player.inventory.materials[MATERIAL_SECRET_REALM_WARP] !== "number" || isNaN(player.inventory.materials[MATERIAL_SECRET_REALM_WARP])) {
+            player.inventory.materials[MATERIAL_SECRET_REALM_WARP] = 0;
         }
     }
 }
@@ -500,6 +509,26 @@ function tryRollLifePotionFromQualityKill() {
     if (typeof addMaterial === "function") addMaterial(MATERIAL_LIFE_POTION, 1);
     if (typeof addCombatLog === "function") {
         addCombatLog(`残躯余蕴未散，你收得<span class="Rare">${MATERIAL_LIFE_POTION_ZH}</span> ×1。`);
+    }
+}
+
+/** 秘境：劫数 20 的 BOSS（guardian/sboss）击杀时，50% 概率掉落秘境穿梭器 */
+function tryRollSecretRealmWarpFromJie20BossKill() {
+    if (typeof escort !== "undefined" && escort && escort.active) return;
+    if (typeof mining !== "undefined" && mining && mining.active) return;
+    if (typeof dungeon === "undefined" || !dungeon || !dungeon.status || !dungeon.status.exploring) return;
+    if (typeof enemy === "undefined" || !enemy) return;
+    if (enemy.bossRole !== "guardian" && enemy.bossRole !== "sboss") return;
+    if (!dungeon.progress) return;
+    var room = Math.max(1, Math.floor(Number(dungeon.progress.room) || 1));
+    if (room !== 20) return;
+    if (Math.random() >= SECRET_REALM_WARP_BOSS_DROP_CHANCE) return;
+    ensureGemMaterialsInInventory();
+    if (typeof addMaterial === "function" && typeof MATERIAL_SECRET_REALM_WARP !== "undefined") {
+        addMaterial(MATERIAL_SECRET_REALM_WARP, 1);
+    }
+    if (typeof addCombatLog === "function" && typeof MATERIAL_SECRET_REALM_WARP_ZH !== "undefined") {
+        addCombatLog(`界纹震鸣，你收得<span class="Legendary">${MATERIAL_SECRET_REALM_WARP_ZH}</span> ×1。`);
     }
 }
 

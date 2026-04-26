@@ -1637,6 +1637,9 @@ const hpValidation = () => {
                 if (typeof tryRollPetExpFruitFromDungeonBossKill === "function") {
                     tryRollPetExpFruitFromDungeonBossKill();
                 }
+                if (typeof tryRollSecretRealmWarpFromJie20BossKill === "function") {
+                    tryRollSecretRealmWarpFromJie20BossKill();
+                }
                 /** 秘境第 20 劫 · 层主（本劫最后殿门镇守）：固定掉落神萃石 ×1 */
                 if (
                     enemy &&

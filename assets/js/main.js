@@ -92,6 +92,7 @@ function createNewPlayer(displayName) {
                 socket_opener: 0,
                 talent_fruit: 0,
                 life_potion: 0,
+                secret_realm_warp: 0,
             },
             gems: { hp: {}, atk: {}, def: {}, atkSpd: {}, critDmg: {} },
             bagTab: "equip",
@@ -428,9 +429,9 @@ window.initDongtianCloudMarketAndArenaUi = function () {
 
 var DONGTIAN_JIE_CHANGELOG_HTML =
     '<div class="changelog-ver">' +
-    '<h4 class="changelog-h4">洞天劫 2.0</h4>' +
-    "<ul class=\"changelog-list\">" +
-    "<li>更新大量事件和机制，现在版本难度不会和1.0一样难。</li>" +
+    '<h4 class="changelog-h4">洞天劫 2.1</h4>' +
+    "<ul class=\"changelog-list\">" + "<li>2.1修复异常属性，增加跳关道具，劫数20掉落。</li>" +
+    "<li>2.0更新大量事件和机制，现在版本难度不会和1.0一样难。</li>" +
     "<li></li>" +
     "<li>单机或断网可玩核心内容；仅修仙市场、武神坛、副本大厅需联网请加群902481027。</li>" +
     "</ul></div>" +

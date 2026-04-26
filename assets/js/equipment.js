@@ -1773,6 +1773,8 @@ function renderInventoryMaterialsPanel() {
     var potions = typeof getMaterialCount === "function" ? getMaterialCount(lifePotKey) : 0;
     var petFruitKey = typeof MATERIAL_PET_EXP_FRUIT !== "undefined" ? MATERIAL_PET_EXP_FRUIT : "pet_exp_fruit";
     var petFruits = typeof getMaterialCount === "function" ? getMaterialCount(petFruitKey) : 0;
+    var warpKey = typeof MATERIAL_SECRET_REALM_WARP !== "undefined" ? MATERIAL_SECRET_REALM_WARP : "secret_realm_warp";
+    var warpCount = typeof getMaterialCount === "function" ? getMaterialCount(warpKey) : 0;
     var godEssKey =
         (typeof window !== "undefined" && window.MATERIAL_GOD_ESSENCE_STONE) ||
         (typeof MATERIAL_GOD_ESSENCE_STONE !== "undefined" ? MATERIAL_GOD_ESSENCE_STONE : "god_essence_stone");
@@ -1788,8 +1790,9 @@ function renderInventoryMaterialsPanel() {
         var s4 = typeof MATERIAL_TALENT_FRUIT_ZH !== "undefined" ? MATERIAL_TALENT_FRUIT_ZH + " " + fruits : "天赋果 " + fruits;
         var s5 = typeof MATERIAL_LIFE_POTION_ZH !== "undefined" ? MATERIAL_LIFE_POTION_ZH + " " + potions : "生命药剂 " + potions;
         var s6 = typeof MATERIAL_PET_EXP_FRUIT_ZH !== "undefined" ? MATERIAL_PET_EXP_FRUIT_ZH + " " + petFruits : "灵宠经验果实 " + petFruits;
+        var s7 = typeof MATERIAL_SECRET_REALM_WARP_ZH !== "undefined" ? MATERIAL_SECRET_REALM_WARP_ZH + " " + warpCount : "秘境穿梭器 " + warpCount;
         matCap.textContent =
-            s1 + " / " + s2 + " / " + s2b + " " + godEss + " / " + s3 + " / " + s4 + " / " + s5 + " / " + s6;
+            s1 + " / " + s2 + " / " + s2b + " " + godEss + " / " + s3 + " / " + s4 + " / " + s5 + " / " + s6 + " / " + s7;
     }
     var el = document.getElementById("playerInventoryMaterials");
     if (!el) return;
@@ -1812,6 +1815,7 @@ function renderInventoryMaterialsPanel() {
     var fruitZh = typeof MATERIAL_TALENT_FRUIT_ZH !== "undefined" ? MATERIAL_TALENT_FRUIT_ZH : "天赋果";
     var potionZh = typeof MATERIAL_LIFE_POTION_ZH !== "undefined" ? MATERIAL_LIFE_POTION_ZH : "生命药剂";
     var petExpZh = typeof MATERIAL_PET_EXP_FRUIT_ZH !== "undefined" ? MATERIAL_PET_EXP_FRUIT_ZH : "灵宠经验果实";
+    var warpZh = typeof MATERIAL_SECRET_REALM_WARP_ZH !== "undefined" ? MATERIAL_SECRET_REALM_WARP_ZH : "秘境穿梭器";
     var godEssZh =
         typeof window !== "undefined" && window.MATERIAL_GOD_ESSENCE_STONE_ZH
             ? window.MATERIAL_GOD_ESSENCE_STONE_ZH
@@ -1967,6 +1971,23 @@ function renderInventoryMaterialsPanel() {
         (petFruits < 1 ? ' disabled="disabled"' : "") +
         ">服用</button>" +
         invMatMarketHtml(typeof MATERIAL_PET_EXP_FRUIT !== "undefined" ? MATERIAL_PET_EXP_FRUIT : petFruitKey, petFruits) +
+        "</div></div>" +
+        '<div class="inv-mat-card inv-mat-card--secret-warp" role="group" aria-label="' +
+        warpZh +
+        '">' +
+        '<div class="inv-mat-card__icon" aria-hidden="true"><i class="fas fa-route"></i></div>' +
+        '<div class="inv-mat-card__meta">' +
+        '<span class="inv-mat-card__name">' +
+        warpZh +
+        "</span>" +
+        '<span class="inv-mat-card__count">持有 ' +
+        warpCount +
+        "</span>" +
+        '<p class="inv-mat-card__desc">每次消耗 1 个，可指定跳至更高秘境层的<strong>第 1 劫</strong>（上限：历史最高层 - 1）。跳关后会立刻刷新该层怪物数据。</p>' +
+        '<button type="button" class="btn btn--sm btn--accent" id="inv-use-secret-realm-warp"' +
+        (warpCount < 1 ? ' disabled="disabled"' : "") +
+        ">穿梭</button>" +
+        invMatMarketHtml(typeof MATERIAL_SECRET_REALM_WARP !== "undefined" ? MATERIAL_SECRET_REALM_WARP : warpKey, warpCount) +
         "</div></div>";
     if (typeof window.DONGTIAN_CLOUD_MODE !== "undefined" && window.DONGTIAN_CLOUD_MODE) {
         el.querySelectorAll(".inv-mat-card__market").forEach(function (btn) {
@@ -2266,6 +2287,107 @@ function renderInventoryMaterialsPanel() {
                 }
             }
             renderInventoryMaterialsPanel();
+        };
+    }
+
+    var useRealmWarp = document.getElementById("inv-use-secret-realm-warp");
+    if (useRealmWarp) {
+        useRealmWarp.onclick = function () {
+            if (useRealmWarp.disabled) return;
+            if (typeof player !== "undefined" && player && player.inCombat) {
+                if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
+                    defaultModalElement.style.display = "flex";
+                    defaultModalElement.innerHTML =
+                        '<div class="content"><p>斗法中无法使用秘境穿梭器。</p><div class="button-container"><button type="button" id="realm-warp-in-combat-ok">知晓</button></div></div>';
+                    var okc = document.querySelector("#realm-warp-in-combat-ok");
+                    if (okc) okc.onclick = function () { defaultModalElement.style.display = "none"; defaultModalElement.innerHTML = ""; };
+                }
+                return;
+            }
+            if (typeof dungeon === "undefined" || !dungeon || !dungeon.progress) return;
+            if ((typeof escort !== "undefined" && escort && escort.active) || (typeof mining !== "undefined" && mining && mining.active)) {
+                if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
+                    defaultModalElement.style.display = "flex";
+                    defaultModalElement.innerHTML =
+                        '<div class="content"><p>押镖/地脉机缘进行中，暂不可穿梭秘境。</p><div class="button-container"><button type="button" id="realm-warp-busy-ok">知晓</button></div></div>';
+                    var okb = document.querySelector("#realm-warp-busy-ok");
+                    if (okb) okb.onclick = function () { defaultModalElement.style.display = "none"; defaultModalElement.innerHTML = ""; };
+                }
+                return;
+            }
+            var haveWarp = typeof getMaterialCount === "function" ? getMaterialCount(warpKey) : 0;
+            if (haveWarp < 1) return;
+            var curFloor = Math.max(1, Math.floor(Number(dungeon.progress.floor) || 1));
+            var histFloor = Math.max(curFloor, Math.floor(Number((typeof player !== "undefined" && player && player.maxDungeonFloor) || curFloor) || curFloor));
+            var floorCap = Math.max(1, Math.floor(Number(dungeon.progress.floorLimit) || 100));
+            var maxTargetFloor = Math.min(floorCap, histFloor - 1);
+            if (maxTargetFloor <= curFloor) {
+                if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
+                    defaultModalElement.style.display = "flex";
+                    defaultModalElement.innerHTML =
+                        '<div class="content"><p>当前可跳上限为历史最高层数 - 1。你当前尚无可跳的更高层数。</p><div class="button-container"><button type="button" id="realm-warp-no-range-ok">知晓</button></div></div>';
+                    var oknr = document.querySelector("#realm-warp-no-range-ok");
+                    if (oknr) oknr.onclick = function () { defaultModalElement.style.display = "none"; defaultModalElement.innerHTML = ""; };
+                }
+                return;
+            }
+            openInvMatBatchQtyModal({
+                title: "秘境穿梭 · " + warpZh,
+                hint: "请输入目标层数（" + (curFloor + 1) + "–" + maxTargetFloor + "）",
+                max: maxTargetFloor,
+                defaultN: Math.min(maxTargetFloor, curFloor + 1),
+                onConfirm: function (targetFloorRaw) {
+                    var targetFloor = Math.floor(Number(targetFloorRaw) || 0);
+                    if (!isFinite(targetFloor) || targetFloor <= curFloor || targetFloor > maxTargetFloor) {
+                        if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
+                            defaultModalElement.style.display = "flex";
+                            defaultModalElement.innerHTML =
+                                '<div class="content"><p>请输入有效目标层数（' +
+                                (curFloor + 1) +
+                                "–" +
+                                maxTargetFloor +
+                                '）。</p><div class="button-container"><button type="button" id="realm-warp-range-err-ok">知晓</button></div></div>';
+                            var oke = document.querySelector("#realm-warp-range-err-ok");
+                            if (oke) oke.onclick = function () { defaultModalElement.style.display = "none"; defaultModalElement.innerHTML = ""; };
+                        }
+                        return;
+                    }
+                    var haveNow = typeof getMaterialCount === "function" ? getMaterialCount(warpKey) : 0;
+                    if (haveNow < 1) return;
+                    if (typeof addMaterial === "function") addMaterial(warpKey, -1);
+                    dungeon.progress.floor = targetFloor;
+                    dungeon.progress.room = 1;
+                    dungeon.action = 0;
+                    if (dungeon.status && typeof dungeon.status === "object") dungeon.status.event = false;
+                    if (typeof loadDungeonProgress === "function") loadDungeonProgress();
+                    if (typeof generateRandomEnemy === "function") {
+                        generateRandomEnemy();
+                        if (typeof setEnemyStats === "function" && typeof enemy !== "undefined" && enemy && enemy.type) {
+                            setEnemyStats(enemy.type, undefined);
+                        }
+                    }
+                    if (typeof addDungeonLog === "function") {
+                        addDungeonLog("你催动秘境穿梭器，破界直抵第 " + targetFloor + " 层第 1 劫。");
+                    }
+                    if (typeof updateDungeonLog === "function") updateDungeonLog();
+                    if (typeof saveData === "function") saveData();
+                    if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
+                        defaultModalElement.style.display = "flex";
+                        defaultModalElement.innerHTML =
+                            '<div class="content"><p>秘境穿梭成功：已抵达第 <b>' +
+                            targetFloor +
+                            "</b> 层第 <b>1</b> 劫。<br/>本层怪物数据已刷新。</p><div class=\"button-container\"><button type=\"button\" id=\"realm-warp-ok\">知晓</button></div></div>";
+                        var ok = document.querySelector("#realm-warp-ok");
+                        if (ok) {
+                            ok.onclick = function () {
+                                defaultModalElement.style.display = "none";
+                                defaultModalElement.innerHTML = "";
+                            };
+                        }
+                    }
+                    renderInventoryMaterialsPanel();
+                },
+            });
         };
     }
 }

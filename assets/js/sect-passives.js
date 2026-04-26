@@ -121,6 +121,7 @@ var PASSIVE_BY_ID = {};
 
         var r1 = function (v) { return Math.round(v * 10) / 10; };
         var r2 = function (v) { return Math.round(v * 100) / 100; };
+        var r3 = function (v) { return Math.round(v * 1000) / 1000; };
         var r4 = function (v) { return Math.round(v * 10000) / 10000; };
         var clamp = function (v, lo, hi) { return Math.max(lo, Math.min(hi, v)); };
 
@@ -146,10 +147,12 @@ var PASSIVE_BY_ID = {};
          */
         var sectPower = {
             jianzhong: 0.95,
-            juling: 1.05,
+            /** 玄武宗：原 1.05，整体削弱 50% */
+            juling: 0.525,
             kuanglan: 0.96,
             wuxing: 1.00,
-            shengshi: 1.08,
+            /** 玉清门（常被写作玉青门）：原 1.08，整体削弱 50% */
+            shengshi: 0.54,
             jihuan: 1.02,
             hehuan: 0.94,
             xiaoyao: 1.01,
@@ -159,25 +162,33 @@ var PASSIVE_BY_ID = {};
             jueming: 0.88
         };
         var typeScale = {
-            onHit_enemyCurrHpPct: 1.00,
-            onHit_enemyMissingHpPct: 0.98,
-            onHit_selfMissingHpPct: 0.95,
-            onHit_selfHpMaxPct: 0.93,
+            /** 击中按目标当前气血：全局削弱 99.9%（保留 0.1%） */
+            onHit_enemyCurrHpPct: 0.001,
+            /** 击中按目标已损失气血：全局削弱 99%（保留 1%） */
+            onHit_enemyMissingHpPct: 0.0098,
+            /** 击中按自身已损失气血：全局削弱 99%（保留 1%，原 0.95 再 ×0.01） */
+            onHit_selfMissingHpPct: 0.0095,
+            /** 击中按自身气血上限：全局削弱 99.9%（原 0.93 再 ×0.001） */
+            onHit_selfHpMaxPct: 0.00093,
             onHit_flat: 0.92,
-            onHit_damageMultPct: 0.92,
+            /** 最终伤害：相对原系数 ×2 */
+            onHit_damageMultPct: 1.84,
             onCrit_damageMultPct: 0.88,
-            onHit_stackAtk: 0.94,
-            onHit_stackAtkSpd: 0.95,
+            /** 每次命中力道 / 身法（脱战重置）：相对原系数 ×2 */
+            onHit_stackAtk: 1.88,
+            onHit_stackAtkSpd: 1.9,
             onHit_vampBonusPct: 0.92,
-            passive_atkPct: 0.95,
+            /** 力道 / 会心 / 暴伤 / 吸血：相对原系数 ×3 */
+            passive_atkPct: 2.85,
             passive_hpPct: 1.00,
             passive_defPct: 1.00,
-            passive_critRate: 0.93,
-            passive_critDmg: 0.88,
+            passive_critRate: 2.79,
+            passive_critDmg: 2.64,
             passive_atkSpdPct: 0.95,
-            passive_vamp: 0.92,
+            passive_vamp: 2.76,
             dmgTakenReducePct: 0.86,
-            thornsPctOfTaken: 0.90
+            /** 反噬：全局削弱 99%（保留 1%，原 0.90 再 ×0.01） */
+            thornsPctOfTaken: 0.009
         };
 
         var p = PROFILES[sectId] || PROFILES.jianzhong;
@@ -266,30 +277,40 @@ var PASSIVE_BY_ID = {};
                     val = clamp(val, 0, 23);
                     return r1(val);
                 case "passive_vamp":
-                    val = clamp(val, 0, 11);
+                    val = clamp(val, 0, 33);
                     return r2(val);
                 case "onHit_vampBonusPct":
                     val = clamp(val, 0, 21);
                     return r1(val);
                 case "passive_critRate":
-                    val = clamp(val, 0, 11);
+                    val = clamp(val, 0, 33);
                     return r2(val);
                 case "passive_critDmg":
-                    val = clamp(val, 0, 29);
+                    val = clamp(val, 0, 87);
                     return r1(val);
                 case "onCrit_damageMultPct":
                     val = clamp(val, 0, 31);
                     return r1(val);
                 case "onHit_damageMultPct":
-                    val = clamp(val, 0, 20);
+                    val = clamp(val, 0, 40);
                     return r1(val);
                 case "onHit_stackAtkSpd":
-                    val = clamp(val, 0, 0.019);
+                    val = clamp(val, 0, 0.038);
                     return r4(val);
                 case "onHit_flat":
                     return Math.round(clamp(val, 1, 200));
+                case "onHit_enemyCurrHpPct":
+                    return r3(Math.max(0, val));
+                case "onHit_enemyMissingHpPct":
+                    return r3(Math.max(0, val));
+                case "onHit_selfMissingHpPct":
+                    return r3(Math.max(0, val));
+                case "onHit_selfHpMaxPct":
+                    return r3(Math.max(0, val));
+                case "thornsPctOfTaken":
+                    return r3(Math.max(0, val));
                 default:
-                    return typeName === "onHit_selfMissingHpPct" || typeName === "passive_vamp" || typeName === "passive_critRate"
+                    return typeName === "passive_vamp" || typeName === "passive_critRate"
                         ? r2(Math.max(0, val))
                         : r1(Math.max(0, val));
             }
@@ -308,8 +329,13 @@ var PASSIVE_BY_ID = {};
                     return r4(v);
                 case "passive_vamp":
                 case "passive_critRate":
-                case "onHit_selfMissingHpPct":
                     return r2(v);
+                case "onHit_enemyCurrHpPct":
+                case "onHit_enemyMissingHpPct":
+                case "onHit_selfMissingHpPct":
+                case "onHit_selfHpMaxPct":
+                case "thornsPctOfTaken":
+                    return r3(v);
                 default:
                     return r1(v);
             }
@@ -425,10 +451,34 @@ var PASSIVE_BY_ID = {};
         for (var i = 0; i < eff.length; i++) {
             var e = eff[i];
             switch (e.type) {
-                case "onHit_enemyCurrHpPct": out.push("击中时额外造成目标当前气血 " + e.value + "% 伤害"); break;
-                case "onHit_enemyMissingHpPct": out.push("击中时额外造成目标已损失气血 " + e.value + "% 的伤害"); break;
-                case "onHit_selfMissingHpPct": out.push("击中时额外造成等同于自身已损失气血 " + e.value + "% 的伤害"); break;
-                case "onHit_selfHpMaxPct": out.push("击中时额外造成自身气血上限 " + e.value + "% 的伤害"); break;
+                case "onHit_enemyCurrHpPct":
+                    out.push(
+                        "击中时额外造成目标当前气血 " +
+                            (typeof e.value === "number" && isFinite(e.value) ? e.value.toFixed(3) : e.value) +
+                            "% 伤害"
+                    );
+                    break;
+                case "onHit_enemyMissingHpPct":
+                    out.push(
+                        "击中时额外造成目标已损失气血 " +
+                            (typeof e.value === "number" && isFinite(e.value) ? e.value.toFixed(3) : e.value) +
+                            "% 的伤害"
+                    );
+                    break;
+                case "onHit_selfMissingHpPct":
+                    out.push(
+                        "击中时额外造成等同于自身已损失气血 " +
+                            (typeof e.value === "number" && isFinite(e.value) ? e.value.toFixed(3) : e.value) +
+                            "% 的伤害"
+                    );
+                    break;
+                case "onHit_selfHpMaxPct":
+                    out.push(
+                        "击中时额外造成自身气血上限 " +
+                            (typeof e.value === "number" && isFinite(e.value) ? e.value.toFixed(3) : e.value) +
+                            "% 的伤害"
+                    );
+                    break;
                 case "onHit_flat": out.push("击中时额外造成 " + e.value + " 点固定伤害"); break;
                 case "onHit_damageMultPct": out.push("最终伤害 +" + e.value + "%"); break;
                 case "onCrit_damageMultPct": out.push("暴击时再提高 " + e.value + "% 伤害"); break;
@@ -442,7 +492,13 @@ var PASSIVE_BY_ID = {};
                 case "passive_atkSpdPct": out.push("身法 " + signed(e.value) + "%"); break;
                 case "passive_vamp": out.push("吸血 " + signed(e.value) + "%"); break;
                 case "dmgTakenReducePct": out.push("受到的伤害 -" + e.value + "%"); break;
-                case "thornsPctOfTaken": out.push("将所受伤害的 " + e.value + "% 反噬给敌方"); break;
+                case "thornsPctOfTaken":
+                    out.push(
+                        "将所受伤害的 " +
+                            (typeof e.value === "number" && isFinite(e.value) ? e.value.toFixed(3) : e.value) +
+                            "% 反噬给敌方"
+                    );
+                    break;
                 case "onHit_vampBonusPct": out.push("本击吸血额外 +" + e.value + "%（按当次伤害结算）"); break;
                 default: break;
             }
@@ -544,7 +600,16 @@ function scalePassiveEffectValueByLevel(v, effLv) {
 /** 与 describeEffects 相同取整规则，用于 UI 展示加成后的数值 */
 function formatPassiveEffectDisplayValue(typeName, v) {
     if (typeName === "onHit_stackAtkSpd") return Math.round(v * 10000) / 10000;
-    if (typeName === "passive_vamp" || typeName === "passive_critRate" || typeName === "onHit_selfMissingHpPct") {
+    if (
+        typeName === "onHit_enemyCurrHpPct" ||
+        typeName === "onHit_enemyMissingHpPct" ||
+        typeName === "onHit_selfMissingHpPct" ||
+        typeName === "onHit_selfHpMaxPct" ||
+        typeName === "thornsPctOfTaken"
+    ) {
+        return Math.round(v * 1000) / 1000;
+    }
+    if (typeName === "passive_vamp" || typeName === "passive_critRate") {
         return Math.round(v * 100) / 100;
     }
     if (typeName === "onHit_flat") return Math.round(v);
@@ -565,10 +630,32 @@ function describePassiveEffectsScaled(eff, effLv) {
         var raw = scalePassiveEffectValueByLevel(e.value, lv);
         var v = formatPassiveEffectDisplayValue(e.type, raw);
         switch (e.type) {
-            case "onHit_enemyCurrHpPct": out.push("击中时额外造成目标当前气血 " + v + "% 伤害"); break;
-            case "onHit_enemyMissingHpPct": out.push("击中时额外造成目标已损失气血 " + v + "% 的伤害"); break;
-            case "onHit_selfMissingHpPct": out.push("击中时额外造成等同于自身已损失气血 " + v + "% 的伤害"); break;
-            case "onHit_selfHpMaxPct": out.push("击中时额外造成自身气血上限 " + v + "% 的伤害"); break;
+            case "onHit_enemyCurrHpPct":
+                out.push(
+                    "击中时额外造成目标当前气血 " +
+                        (typeof v === "number" && isFinite(v) ? v.toFixed(3) : v) +
+                        "% 伤害"
+                );
+                break;
+            case "onHit_enemyMissingHpPct":
+                out.push(
+                    "击中时额外造成目标已损失气血 " +
+                        (typeof v === "number" && isFinite(v) ? v.toFixed(3) : v) +
+                        "% 的伤害"
+                );
+                break;
+            case "onHit_selfMissingHpPct":
+                out.push(
+                    "击中时额外造成等同于自身已损失气血 " +
+                        (typeof v === "number" && isFinite(v) ? v.toFixed(3) : v) +
+                        "% 的伤害"
+                );
+                break;
+            case "onHit_selfHpMaxPct":
+                out.push(
+                    "击中时额外造成自身气血上限 " + (typeof v === "number" && isFinite(v) ? v.toFixed(3) : v) + "% 的伤害"
+                );
+                break;
             case "onHit_flat": out.push("击中时额外造成 " + v + " 点固定伤害"); break;
             case "onHit_damageMultPct": out.push("最终伤害 +" + v + "%"); break;
             case "onCrit_damageMultPct": out.push("暴击时再提高 " + v + "% 伤害"); break;
@@ -582,7 +669,13 @@ function describePassiveEffectsScaled(eff, effLv) {
             case "passive_atkSpdPct": out.push("身法 " + signed(v) + "%"); break;
             case "passive_vamp": out.push("吸血 " + signed(v) + "%"); break;
             case "dmgTakenReducePct": out.push("受到的伤害 -" + v + "%"); break;
-            case "thornsPctOfTaken": out.push("将所受伤害的 " + v + "% 反噬给敌方"); break;
+            case "thornsPctOfTaken":
+                out.push(
+                    "将所受伤害的 " +
+                        (typeof v === "number" && isFinite(v) ? v.toFixed(3) : v) +
+                        "% 反噬给敌方"
+                );
+                break;
             case "onHit_vampBonusPct": out.push("本击吸血额外 +" + v + "%（按当次伤害结算）"); break;
             default: break;
         }
