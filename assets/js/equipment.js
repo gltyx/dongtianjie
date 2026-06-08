@@ -94,6 +94,9 @@ function inferArmorClass(item) {
     return "";
 }
 
+/** 轻甲/布甲/皮甲基础加成相对重甲、板甲外上调（重甲、板甲系数不变） */
+var ARMOR_CLASS_LIGHT_CLOTH_LEATHER_EFFECT_MULT = 1.2;
+
 function getArmorClassBonusMap(item) {
     if (!item || item.type !== "Armor") return null;
     var armorClass = inferArmorClass(item);
@@ -101,28 +104,38 @@ function getArmorClassBonusMap(item) {
     var lvl = Math.max(1, Math.floor(Number(item.lvl) || 1));
     var baseBonus = null;
     switch (armorClass) {
+        /** 重甲：高气血护体；笨重减力道、身法（负面不经门派契合放大） */
         case "Heavy":
-            baseBonus = { hp: Math.round(lvl * 40), def: Math.round(lvl * 18) };
+            baseBonus = {
+                hp: Math.round(lvl * 40),
+                def: Math.round(lvl * 18),
+                atk: -Math.round(lvl * 6),
+                atkSpd: -Number((1.0 + lvl * 0.04).toFixed(2)),
+            };
             break;
         case "Light":
             baseBonus = {
-                atkSpd: Number((4 + lvl * 0.08).toFixed(2)),
-                critRate: Number((3 + lvl * 0.06).toFixed(2))
+                atkSpd: Number(((4 + lvl * 0.08) * ARMOR_CLASS_LIGHT_CLOTH_LEATHER_EFFECT_MULT).toFixed(2)),
+                critRate: Number(((3 + lvl * 0.06) * ARMOR_CLASS_LIGHT_CLOTH_LEATHER_EFFECT_MULT).toFixed(2))
             };
             break;
         case "Cloth":
             baseBonus = {
-                critDmg: Number((5 + lvl * 0.09).toFixed(2)),
-                vamp: Number((2 + lvl * 0.05).toFixed(2))
+                critDmg: Number(((5 + lvl * 0.09) * ARMOR_CLASS_LIGHT_CLOTH_LEATHER_EFFECT_MULT).toFixed(2)),
+                vamp: Number(((2 + lvl * 0.05) * ARMOR_CLASS_LIGHT_CLOTH_LEATHER_EFFECT_MULT).toFixed(2))
             };
             break;
+        /** 板甲：与重甲错开，偏破甲式输出（力道+暴伤），不再叠气血 */
         case "Plate":
-            baseBonus = { hp: Math.round(lvl * 55), def: Math.round(lvl * 12) };
+            baseBonus = {
+                atk: Math.round(lvl * 9),
+                critDmg: Number((7 + lvl * 0.09).toFixed(2)),
+            };
             break;
         case "Leather":
             baseBonus = {
-                atk: Math.round(lvl * 10),
-                critRate: Number((2 + lvl * 0.05).toFixed(2))
+                atk: Math.round(lvl * 10 * ARMOR_CLASS_LIGHT_CLOTH_LEATHER_EFFECT_MULT),
+                critRate: Number(((2 + lvl * 0.05) * ARMOR_CLASS_LIGHT_CLOTH_LEATHER_EFFECT_MULT).toFixed(2))
             };
             break;
         default:
@@ -136,6 +149,15 @@ function getArmorClassBonusMap(item) {
         if (!Object.prototype.hasOwnProperty.call(baseBonus, k)) continue;
         var v = Number(baseBonus[k]);
         if (!isFinite(v)) continue;
+        /** 负面词条不按门派契合倍率放大（避免契合重甲反而加重惩罚） */
+        if (v < 0) {
+            if (k === "critRate" || k === "critDmg" || k === "atkSpd" || k === "vamp") {
+                out[k] = Number(v.toFixed(2));
+            } else {
+                out[k] = Math.round(v);
+            }
+            continue;
+        }
         if (k === "critRate" || k === "critDmg" || k === "atkSpd" || k === "vamp") {
             out[k] = Number((v * mul).toFixed(2));
         } else {
@@ -160,10 +182,12 @@ function formatArmorClassBonusMetaHtml(item) {
         var k = keys[i];
         var v = bonus[k];
         if (typeof v !== "number" || !isFinite(v) || v === 0) continue;
-        if (k === "critRate" || k === "critDmg" || k === "atkSpd" || k === "vamp") {
-            lines.push(formatEquipmentStatKeyLabel(k) + "+" + v.toFixed(2).replace(rx, "$1") + "%");
+        var pct = k === "critRate" || k === "critDmg" || k === "atkSpd" || k === "vamp";
+        if (pct) {
+            var sv = v.toFixed(2).replace(rx, "$1");
+            lines.push(formatEquipmentStatKeyLabel(k) + (v > 0 ? "+" : "") + sv + "%");
         } else {
-            lines.push(formatEquipmentStatKeyLabel(k) + "+" + Math.round(v));
+            lines.push(formatEquipmentStatKeyLabel(k) + (v > 0 ? "+" : "") + Math.round(v));
         }
     }
     return (
@@ -221,6 +245,24 @@ const EQUIP_SET_MIN_RARITY_TIER_INDEX = 2;
 const EQUIP_SET_ROLL_CHANCE = 0.1;
 const EQUIP_PASSIVE_BONUS_MIN_RARITY_TIER_INDEX = 1; // 2 品及以上可出功法加成
 
+/** 套装 2/4/6 件效果：气血/护体/力道机缘百分比额外倍率（洞天劫） */
+const EQUIP_SET_HP_ATK_DEF_EFFECT_MUL = 7;
+
+function equipmentSetBonusStatValue(key, rawVal) {
+    var v = typeof rawVal === "number" && !isNaN(rawVal) ? rawVal : 0;
+    if (!(v > 0)) return 0;
+    if (key === "hp" || key === "atk" || key === "def") {
+        var m =
+            typeof EQUIP_SET_HP_ATK_DEF_EFFECT_MUL === "number" &&
+            isFinite(EQUIP_SET_HP_ATK_DEF_EFFECT_MUL) &&
+            EQUIP_SET_HP_ATK_DEF_EFFECT_MUL > 0
+                ? EQUIP_SET_HP_ATK_DEF_EFFECT_MUL
+                : 1;
+        return v * m;
+    }
+    return v;
+}
+
 /** 30 套：2/4/6 件叠加机缘类百分比（与机缘面板同一套属性） */
 const EQUIPMENT_SET_DEFINITIONS = [
     { name: "周天星图", b2: { hp: 14, atk: 10 }, b4: { hp: 32, atk: 26, critRate: 12 }, b6: { hp: 58, atk: 48, critRate: 22, critDmg: 28 } },
@@ -266,8 +308,8 @@ function addEquipmentSetBonusMap(target, src) {
     if (!target || !src) return;
     for (var k = 0; k < EQUIPMENT_SET_STAT_KEYS.length; k++) {
         var key = EQUIPMENT_SET_STAT_KEYS[k];
-        var v = src[key];
-        if (typeof v === "number" && !isNaN(v)) {
+        var v = equipmentSetBonusStatValue(key, src[key]);
+        if (typeof v === "number" && !isNaN(v) && v > 0) {
             target[key] = (target[key] || 0) + v;
         }
     }
@@ -400,7 +442,7 @@ function formatSetBonusLineForTier(label, bonusObj, rx) {
     var parts = [];
     for (var k = 0; k < EQUIPMENT_SET_STAT_KEYS.length; k++) {
         var key = EQUIPMENT_SET_STAT_KEYS[k];
-        var v = bonusObj[key];
+        var v = equipmentSetBonusStatValue(key, bonusObj[key]);
         if (typeof v !== "number" || !v) continue;
         if (key === "critRate" || key === "critDmg" || key === "atkSpd" || key === "vamp") {
             parts.push(formatEquipmentStatKeyLabel(key) + "+" + v.toFixed(2).replace(rx, "$1") + "%");
@@ -412,8 +454,210 @@ function formatSetBonusLineForTier(label, bonusObj, rx) {
     return "<li><strong>" + label + "</strong>：" + parts.join("，") + "</li>";
 }
 
-/** 行囊（遗器）存放上限 */
+
 const INVENTORY_EQUIPMENT_MAX = 200;
+
+/** 行囊槽位：兼容云端 JSON 读档后 equipment[i] 为对象（非字符串） */
+function parseInventoryEquipmentEntry(raw) {
+    if (raw == null) return null;
+    if (typeof raw === "object") {
+        try {
+            return JSON.parse(JSON.stringify(raw));
+        } catch (eObj) {
+            return null;
+        }
+    }
+    if (typeof raw === "string") {
+        var s = raw.trim();
+        if (!s) return null;
+        try {
+            return JSON.parse(s);
+        } catch (eStr) {
+            return null;
+        }
+    }
+    return null;
+}
+
+/** 遗器实例 ID：区分同词缀两件，便于剔除「身上 + 背包」同实例复制 */
+function genEquipmentInstId() {
+    return (
+        "eq_" +
+        Date.now().toString(36) +
+        "_" +
+        Math.random().toString(36).slice(2, 11) +
+        Math.random().toString(36).slice(2, 6)
+    );
+}
+
+function ensureEquipmentInstId(item) {
+    if (!item || typeof item !== "object") return false;
+    if (typeof item.instId === "string" && item.instId.trim()) return false;
+    item.instId = genEquipmentInstId();
+    return true;
+}
+
+function equipmentInstIdOf(item) {
+    if (!item || typeof item.instId !== "string") return "";
+    var s = item.instId.trim();
+    return s || "";
+}
+
+/** 不含 instId 的内容键（判「陈旧云档复制件」：身上已有 instId、背包仍为旧 JSON） */
+function equipmentBodyKey(item) {
+    if (!item || typeof item !== "object") return "";
+    try {
+        var clone = JSON.parse(JSON.stringify(item));
+        delete clone.instId;
+        return JSON.stringify(clone);
+    } catch (eBody) {
+        return "";
+    }
+}
+
+/** 无 instId 旧档：按整件 JSON 判同 */
+function equipmentLegacyJsonKey(item) {
+    if (!item || typeof item !== "object") return "";
+    try {
+        return JSON.stringify(item);
+    } catch (eKey) {
+        return "";
+    }
+}
+
+/** 背包条目是否为身上同实例的复制（含陈旧云档未带 instId 的情况） */
+function inventoryEntryDuplicatesEquipped(inv, eq) {
+    if (!inv || !eq || typeof inv !== "object" || typeof eq !== "object") return false;
+    var eqId = equipmentInstIdOf(eq);
+    var invId = equipmentInstIdOf(inv);
+    if (eqId && invId && eqId === invId) return true;
+    var bkInv = equipmentBodyKey(inv);
+    var bkEq = equipmentBodyKey(eq);
+    if (!bkInv || !bkEq || bkInv !== bkEq) return false;
+    if (eq.type && inv.type && eq.type !== inv.type) return false;
+    if (eqId && invId && eqId !== invId) {
+        /** 复制件曾被抢先补过随机 instId，但整件 JSON 仍等于「身上件去掉 instId」 */
+        if (equipmentLegacyJsonKey(inv) === bkEq) return true;
+        return false;
+    }
+    if (eqId && !invId) return true;
+    if (!eqId && !invId) return equipmentLegacyJsonKey(inv) === equipmentLegacyJsonKey(eq);
+    return false;
+}
+
+/**
+ * 剔除背包中与已穿戴同实例的重复项（云档合并/换装竞态的兜底）。
+ * 须在 bulk 补 instId 之前调用，否则会给复制件随机新 id 导致无法匹配。
+ */
+function stripEquippedDuplicatesFromInventory() {
+    if (!player || !player.inventory || !Array.isArray(player.inventory.equipment)) return false;
+    if (!Array.isArray(player.equipped) || !player.equipped.length) return false;
+
+    var next = [];
+    var changed = false;
+    var equipped = player.equipped.slice();
+
+    for (var i = 0; i < player.inventory.equipment.length; i++) {
+        var item = parseInventoryEquipmentEntry(player.inventory.equipment[i]);
+        if (!item || typeof item !== "object") {
+            changed = true;
+            continue;
+        }
+        var isDup = false;
+        for (var e = 0; e < equipped.length; e++) {
+            if (inventoryEntryDuplicatesEquipped(item, equipped[e])) {
+                isDup = true;
+                break;
+            }
+        }
+        if (isDup) {
+            changed = true;
+            continue;
+        }
+        var str = JSON.stringify(item);
+        if (player.inventory.equipment[i] !== str) changed = true;
+        next.push(str);
+    }
+    if (next.length !== player.inventory.equipment.length) changed = true;
+    if (changed) player.inventory.equipment = next;
+    return changed;
+}
+
+/** 为已穿戴补 instId 并剔除背包同实例重复 */
+function reconcileEquippedInventoryDuplicates() {
+    if (!player) return false;
+    var changed = false;
+    if (stripEquippedDuplicatesFromInventory()) changed = true;
+    if (Array.isArray(player.equipped)) {
+        for (var i = 0; i < player.equipped.length; i++) {
+            if (player.equipped[i] && ensureEquipmentInstId(player.equipped[i])) changed = true;
+        }
+    }
+    if (player.inventory && Array.isArray(player.inventory.equipment)) {
+        for (var j = 0; j < player.inventory.equipment.length; j++) {
+            var invItem = parseInventoryEquipmentEntry(player.inventory.equipment[j]);
+            if (!invItem || typeof invItem !== "object") continue;
+            if (ensureEquipmentInstId(invItem)) changed = true;
+            var invStr = JSON.stringify(invItem);
+            if (player.inventory.equipment[j] !== invStr) {
+                player.inventory.equipment[j] = invStr;
+                changed = true;
+            }
+        }
+    }
+    return changed;
+}
+
+function persistEquipmentDedupeIfNeeded(changed) {
+    if (!changed) return;
+    if (typeof saveData === "function") {
+        saveData({ forceCloud: true, playerMutation: true });
+    }
+}
+
+/** 将行囊遗器统一为 JSON 字符串，避免 showInventory 解析失败整表空白 */
+function normalizeInventoryEquipmentSlots() {
+    if (typeof player === "undefined" || !player || !player.inventory) return false;
+    if (!Array.isArray(player.inventory.equipment)) {
+        player.inventory.equipment = [];
+        return false;
+    }
+    var changed = false;
+    var next = [];
+    for (var i = 0; i < player.inventory.equipment.length; i++) {
+        var item = parseInventoryEquipmentEntry(player.inventory.equipment[i]);
+        if (!item || typeof item !== "object") continue;
+        var str = JSON.stringify(item);
+        if (player.inventory.equipment[i] !== str) changed = true;
+        next.push(str);
+    }
+    if (next.length !== player.inventory.equipment.length) changed = true;
+    if (changed) player.inventory.equipment = next;
+    if (reconcileEquippedInventoryDuplicates()) changed = true;
+    return changed;
+}
+
+function isEquipmentMarketRestricted(item) {
+    if (!item) return false;
+    var es = typeof item.enhanceStars === "number" ? Math.max(0, Math.min(10, Math.floor(item.enhanceStars))) : 0;
+    return es >= 10;
+}
+
+function canEquipmentMarketTrade(item) {
+    if (!item) return false;
+    if (isEquipmentMarketRestricted(item)) return false;
+    if (typeof equipmentHasSocketedGems === "function" && equipmentHasSocketedGems(item)) return false;
+    return true;
+}
+
+try {
+    window.normalizeInventoryEquipmentSlots = normalizeInventoryEquipmentSlots;
+    window.parseInventoryEquipmentEntry = parseInventoryEquipmentEntry;
+    window.stripEquippedDuplicatesFromInventory = stripEquippedDuplicatesFromInventory;
+    window.reconcileEquippedInventoryDuplicates = reconcileEquippedInventoryDuplicates;
+    window.isEquipmentMarketRestricted = isEquipmentMarketRestricted;
+    window.canEquipmentMarketTrade = canEquipmentMarketTrade;
+} catch (eNormEx) {}
 
 function inventoryEquipmentCount() {
     if (!player || !player.inventory || !Array.isArray(player.inventory.equipment)) return 0;
@@ -438,8 +682,179 @@ function clampInventoryEquipmentToMax() {
     if (!player || !player.inventory || !Array.isArray(player.inventory.equipment)) return;
     if (player.inventory.equipment.length > INVENTORY_EQUIPMENT_MAX) {
         player.inventory.equipment = player.inventory.equipment.slice(0, INVENTORY_EQUIPMENT_MAX);
-        if (typeof saveData === "function") saveData();
+        if (typeof savePlayerInventoryMutation === "function") savePlayerInventoryMutation();
+        else if (typeof saveData === "function") saveData({ forceCloud: true, playerMutation: true });
     }
+}
+
+/** 行囊筛选/自动出售等 UI 偏好：联网须 forceCloud，避免关洞天早于 debounce */
+function saveInventoryUiPreference() {
+    if (typeof window.dongtianPersistPlayerUiChange === "function") {
+        window.dongtianPersistPlayerUiChange();
+    } else if (typeof saveData === "function") {
+        saveData();
+    }
+}
+
+/** 行囊/装备/材料/强化附魔/宝石等 player 变更：联网模式触发冲档（默认不等待落盘，避免强化/换装卡顿） */
+function savePlayerInventoryMutation(optWaitMs) {
+    if (typeof saveData !== "function") return Promise.resolve();
+    if (window.DONGTIAN_CLOUD_MODE) {
+        /** 须同步标记 dirty 并写影子，避免典让后立刻关游戏时 pagehide 误判为无变更而跳过冲档 */
+        if (typeof window.dongtianMarkPlayerMutation === "function") {
+            window.dongtianMarkPlayerMutation();
+        }
+        /** 立即发起冲档，勿等材料 delta flush 排队（关页/关洞天窗口极短） */
+        saveData({ forceCloud: true, playerMutation: true, skipMarkMutation: true });
+        if (typeof window.dongtianPersistInventoryNow === "function") {
+            return window.dongtianPersistInventoryNow(optWaitMs, true);
+        }
+        return Promise.resolve(false);
+    }
+    saveData();
+    return Promise.resolve();
+}
+
+/** 材料效果未生效时退还已扣数量（联网 delta / 离线本地） */
+function eqRefundMaterialDeltasIfNeeded(deltas) {
+    if (!deltas || typeof deltas !== "object") return Promise.resolve();
+    var refund = Object.create(null);
+    Object.keys(deltas).forEach(function (k) {
+        var d = Math.floor(Number(deltas[k]) || 0);
+        if (d < 0) refund[k] = -d;
+    });
+    if (!Object.keys(refund).length) return Promise.resolve();
+    if (
+        window.DONGTIAN_CLOUD_MODE &&
+        window.__dongtianCloudHydrated &&
+        typeof window.dongtianRequestMaterialDeltaChunked === "function"
+    ) {
+        return window
+            .dongtianRequestMaterialDeltaChunked(refund, { reason: "material_effect_refund" })
+            .then(function () {
+                if (typeof renderInventoryMaterialsPanel === "function") renderInventoryMaterialsPanel();
+            });
+    }
+    if (typeof addMaterial === "function") {
+        Object.keys(refund).forEach(function (k) {
+            addMaterial(k, refund[k], { skipServerDelta: true, localOnly: true });
+        });
+    }
+    return Promise.resolve();
+}
+
+function eqRunMaterialEffectFn(fn) {
+    try {
+        return typeof fn === "function" ? fn() : { ok: false, message: "效果未执行。" };
+    } catch (eFn) {
+        return {
+            ok: false,
+            effectFailed: true,
+            message: (eFn && eFn.message) || "使用材料时发生异常，请重试。",
+        };
+    }
+}
+
+
+function eqGetSpendableMaterialCount(id) {
+    if (
+        typeof window !== "undefined" &&
+        typeof window.dongtianGetSpendableMaterialCount === "function"
+    ) {
+        return window.dongtianGetSpendableMaterialCount(id);
+    }
+    return typeof getMaterialCount === "function" ? getMaterialCount(id) : 0;
+}
+
+function eqFlushMaterialsBeforeUse() {
+    if (
+        window.DONGTIAN_CLOUD_MODE &&
+        window.__dongtianCloudHydrated &&
+        typeof window.dongtianFlushMaterialDeltas === "function"
+    ) {
+        return window.dongtianFlushMaterialDeltas({ reason: "before_mat_use" }).then(function (res) {
+            if (res && res.ok === false) {
+                var reloadP =
+                    typeof window.dongtianReloadMaterialsFromServer === "function"
+                        ? window.dongtianReloadMaterialsFromServer()
+                        : Promise.resolve(false);
+                return reloadP.then(function () {
+                    return {
+                        ok: false,
+                        message: "材料尚未与灵网同步完成，请稍后再试或刷新行囊。",
+                    };
+                });
+            }
+            return res || { ok: true };
+        });
+    }
+    return Promise.resolve({ ok: true });
+}
+
+/** 联网：先冲档待同步材料 → 服务端扣料 → 执行 fn；离线：本地扣料后执行 fn（fn 内 skipMaterialDeduct） */
+function eqRunMaterialDeltaThen(btn, deltas, reason, fn) {
+    var isCloud =
+        window.DONGTIAN_CLOUD_MODE &&
+        window.__dongtianCloudHydrated &&
+        typeof window.dongtianRunAfterMaterialDelta === "function";
+    if (isCloud) {
+        return eqFlushMaterialsBeforeUse().then(function (flushRes) {
+            if (!flushRes || flushRes.ok === false) {
+                return flushRes || { ok: false, message: "材料尚未与灵网同步完成，请稍后再试。" };
+            }
+            return window.dongtianRunAfterMaterialDelta(btn, deltas, reason, function () {
+                return eqRunMaterialEffectFn(fn);
+            });
+        }).then(function (res) {
+            if (res && res.ok === true) {
+                /** 材料 delta 已落盘但 player 字段（御器碎片/宝石/天赋果/穿梭器等）须整包写入后再关洞天 */
+                var waitMs = 0;
+                if (
+                    reason === "yuqi_pack" ||
+                    reason === "yuqi_pack_batch" ||
+                    reason === "gem_pack" ||
+                    reason === "gem_pack_batch" ||
+                    reason === "talent_fruit" ||
+                    reason === "pet_exp_fruit" ||
+                    reason === "secret_realm_warp" ||
+                    reason === "life_potion" ||
+                    reason === "socket_opener"
+                ) {
+                    waitMs = 2800;
+                }
+                return savePlayerInventoryMutation(waitMs).then(function () {
+                    return res;
+                });
+            }
+            if (res && res.effectFailed) {
+                return eqRefundMaterialDeltasIfNeeded(deltas).then(function () {
+                    return res;
+                });
+            }
+            return res;
+        });
+    }
+    if (btn) btn.disabled = true;
+    var localApplied =
+        typeof window.dongtianApplyLocalMaterialDeltasOrFail === "function"
+            ? window.dongtianApplyLocalMaterialDeltasOrFail(deltas)
+            : { ok: false, message: "材料模块未加载。" };
+    if (!localApplied.ok) {
+        if (btn) btn.disabled = false;
+        return Promise.resolve(localApplied);
+    }
+    var localRes = eqRunMaterialEffectFn(fn);
+    if (btn) btn.disabled = false;
+    if (localRes && localRes.ok === true) {
+        savePlayerInventoryMutation();
+        return Promise.resolve(localRes);
+    }
+    if (localRes && (localRes.effectFailed || localRes.ok === false)) {
+        return eqRefundMaterialDeltasIfNeeded(deltas).then(function () {
+            return localRes;
+        });
+    }
+    return Promise.resolve(localRes && typeof localRes === "object" ? localRes : { ok: false });
 }
 
 function canUnequipAllToInventory() {
@@ -482,6 +897,40 @@ var AUTO_BATCH_SELL_RARITY_ALLOWED = {
     All: 1
 };
 
+/** 行囊 / 典让：解析存档或输入中的修为等级边界；空串与无效为 null（不限） */
+function parseInvEquipmentLvlBound(v) {
+    if (v === "" || v === null || v === undefined) return null;
+    var n = Number(v);
+    if (!isFinite(n) || n < 1) return null;
+    return Math.min(9999, Math.floor(n));
+}
+
+function getEquipmentWearLvlForFilter(item) {
+    return Math.max(1, Math.floor(Number(item && item.lvl) || 1));
+}
+
+function normalizeInvLvlMinMax(lo, hi) {
+    var a = parseInvEquipmentLvlBound(lo);
+    var b = parseInvEquipmentLvlBound(hi);
+    if (a != null && b != null && a > b) {
+        var t = a;
+        a = b;
+        b = t;
+    }
+    return { min: a, max: b };
+}
+
+function passesInvEquipmentLvlRange(itemLvl, minBound, maxBound) {
+    if (minBound != null && itemLvl < minBound) return false;
+    if (maxBound != null && itemLvl > maxBound) return false;
+    return true;
+}
+
+function getInventorySellLvlParsedBounds() {
+    ensureInventoryUiFilters();
+    return normalizeInvLvlMinMax(player.inventory.autoBatchSellLvlMin, player.inventory.autoBatchSellLvlMax);
+}
+
 function ensureInventoryUiFilters() {
     if (!player.inventory) player.inventory = { equipment: [] };
     if (!player.inventory.uiFilter) {
@@ -489,7 +938,23 @@ function ensureInventoryUiFilters() {
     }
     if (typeof player.inventory.uiFilter.rarity !== "string") player.inventory.uiFilter.rarity = "All";
     if (typeof player.inventory.uiFilter.slotType !== "string") player.inventory.uiFilter.slotType = "All";
+    if (player.inventory.uiFilter.viewLvlMin === undefined || player.inventory.uiFilter.viewLvlMin === null) {
+        player.inventory.uiFilter.viewLvlMin = "";
+    }
+    if (player.inventory.uiFilter.viewLvlMax === undefined || player.inventory.uiFilter.viewLvlMax === null) {
+        player.inventory.uiFilter.viewLvlMax = "";
+    }
+    if (typeof player.inventory.uiFilter.viewLvlMin !== "string") player.inventory.uiFilter.viewLvlMin = "";
+    if (typeof player.inventory.uiFilter.viewLvlMax !== "string") player.inventory.uiFilter.viewLvlMax = "";
     if (player.inventory.autoBatchSell === undefined) player.inventory.autoBatchSell = false;
+    if (player.inventory.autoBatchSellLvlMin === undefined || player.inventory.autoBatchSellLvlMin === null) {
+        player.inventory.autoBatchSellLvlMin = "";
+    }
+    if (player.inventory.autoBatchSellLvlMax === undefined || player.inventory.autoBatchSellLvlMax === null) {
+        player.inventory.autoBatchSellLvlMax = "";
+    }
+    if (typeof player.inventory.autoBatchSellLvlMin !== "string") player.inventory.autoBatchSellLvlMin = "";
+    if (typeof player.inventory.autoBatchSellLvlMax !== "string") player.inventory.autoBatchSellLvlMax = "";
     if (typeof player.inventory.autoBatchSellRarity !== "string" || !AUTO_BATCH_SELL_RARITY_ALLOWED[player.inventory.autoBatchSellRarity]) {
         player.inventory.autoBatchSellRarity = "Common";
     }
@@ -515,11 +980,22 @@ function syncInventorySellRarityDom() {
     sel.className = "select-field select-field--inv " + (v === "All" ? "Common" : v);
 }
 
+function syncInventorySellLvlDom() {
+    var mn = document.getElementById("inv-sell-lvl-min");
+    var mx = document.getElementById("inv-sell-lvl-max");
+    if (!mn || !mx || typeof player === "undefined" || !player || !player.inventory) return;
+    ensureInventoryUiFilters();
+    mn.value = player.inventory.autoBatchSellLvlMin === "" ? "" : String(player.inventory.autoBatchSellLvlMin);
+    mx.value = player.inventory.autoBatchSellLvlMax === "" ? "" : String(player.inventory.autoBatchSellLvlMax);
+}
+
 function passesBagFilter(item) {
     ensureInventoryUiFilters();
     var f = player.inventory.uiFilter;
     if (f.rarity !== "All" && item.rarity !== f.rarity) return false;
     if (f.slotType !== "All" && item.type !== f.slotType) return false;
+    var vb = normalizeInvLvlMinMax(f.viewLvlMin, f.viewLvlMax);
+    if (!passesInvEquipmentLvlRange(getEquipmentWearLvlForFilter(item), vb.min, vb.max)) return false;
     return true;
 }
 
@@ -527,7 +1003,6 @@ function replaceInventoryEquipmentAtIndex(i, obj) {
     if (!player.inventory || !Array.isArray(player.inventory.equipment)) return;
     if (i < 0 || i >= player.inventory.equipment.length) return;
     player.inventory.equipment[i] = JSON.stringify(obj);
-    if (typeof saveData === "function") saveData();
 }
 
 function toggleInventoryLockAtIndex(i) {
@@ -536,6 +1011,7 @@ function toggleInventoryLockAtIndex(i) {
     var obj = JSON.parse(raw);
     obj.locked = !obj.locked;
     replaceInventoryEquipmentAtIndex(i, obj);
+    savePlayerInventoryMutation();
     showInventory();
 }
 
@@ -577,6 +1053,7 @@ function normalizePlayerEquippedSlots() {
             continue;
         }
         seen[it.type] = true;
+        ensureEquipmentInstId(it);
         keep.push(it);
     }
     player.equipped = keep;
@@ -615,6 +1092,15 @@ function weaponOrArmorDisplayName(item) {
 /** 秘境遗器「境界等级」上限：第 f 层不超过 f×本值（含 f×本值）。例：5 → 第1层≤5、第2层≤10。设为 0 关闭按层封顶。 */
 const DUNGEON_EQUIP_MAX_LVL_PER_FLOOR = 5;
 
+/** 秘卷遗器：气血/护体/力道相对秘境同 roll 额外 × 此倍率（在境界档倍率之后） */
+const TREASURE_MAP_HP_ATK_DEF_MUL = 1.2;
+
+/** 遗器境界档：每跨 10 级大境界，气血/力道/护体复合 × 本值 */
+const EQUIP_HP_ATK_DEF_LEVEL_TIER_MUL = 1.45;
+
+/** 旧版境界档倍率（仅读档迁移：从 1.2 升到 1.45 时先按此值剥倍率） */
+const EQUIP_HP_ATK_DEF_LEVEL_TIER_MUL_LEGACY = 1.2;
+
 function getDungeonEquipmentLvlCap() {
     if (typeof dungeon === "undefined" || !dungeon || !dungeon.progress || typeof dungeon.progress.floor !== "number") {
         return null;
@@ -626,15 +1112,33 @@ function getDungeonEquipmentLvlCap() {
 }
 
 /**
- * 气血 / 力道 / 护体 按遗器等级分段（每 10 级一档）：每档相对上一档 +20%（复合），即 1–10 为 ×1，11–20 为 ×1.2，21–30 为 ×1.2²，以此类推。
- * 倍率 = 1.2^floor((lvl-1)/10)
+ * 气血 / 力道 / 护体 按遗器等级分段（每 10 级一档）：每档相对上一档 +45%（复合），即 1–10 为 ×1，11–20 为 ×1.45，21–30 为 ×1.45²，以此类推。
+ * 倍率 = EQUIP_HP_ATK_DEF_LEVEL_TIER_MUL^floor((lvl-1)/10)
  * 本倍率在「基础 hp/atk/def 按层封顶」之后再乘入词条，不参与封顶缩量（与淬火/附魔同为后乘层）。
  */
 function getEquipmentHpAtkDefLevelTierMul(lvl) {
     var n = typeof lvl === "number" && isFinite(lvl) && lvl > 0 ? Math.floor(lvl) : 1;
     var tier = Math.floor((n - 1) / 10);
     if (tier < 0) tier = 0;
-    return Math.pow(1.2, tier);
+    var base =
+        typeof EQUIP_HP_ATK_DEF_LEVEL_TIER_MUL === "number" && isFinite(EQUIP_HP_ATK_DEF_LEVEL_TIER_MUL) && EQUIP_HP_ATK_DEF_LEVEL_TIER_MUL > 0
+            ? EQUIP_HP_ATK_DEF_LEVEL_TIER_MUL
+            : 1.45;
+    return Math.pow(base, tier);
+}
+
+/** @param {number} [optTierMulBase] 指定境界档底数（迁移旧档 1.2→1.45 时用 LEGACY 剥倍率） */
+function getEquipmentHpAtkDefLevelTierMulAtBase(lvl, optTierMulBase) {
+    var n = typeof lvl === "number" && isFinite(lvl) && lvl > 0 ? Math.floor(lvl) : 1;
+    var tier = Math.floor((n - 1) / 10);
+    if (tier < 0) tier = 0;
+    var base =
+        typeof optTierMulBase === "number" && isFinite(optTierMulBase) && optTierMulBase > 0
+            ? optTierMulBase
+            : typeof EQUIP_HP_ATK_DEF_LEVEL_TIER_MUL === "number" && isFinite(EQUIP_HP_ATK_DEF_LEVEL_TIER_MUL) && EQUIP_HP_ATK_DEF_LEVEL_TIER_MUL > 0
+              ? EQUIP_HP_ATK_DEF_LEVEL_TIER_MUL
+              : 1.45;
+    return Math.pow(base, tier);
 }
 
 /** 封顶之后：将境界档倍率乘到每条 hp/atk/def 上 */
@@ -652,8 +1156,11 @@ function applyEquipmentHpAtkDefLevelTierMulToStats(equipment, lvl) {
 }
 
 /** 重算封顶前：剥去境界档倍率（与 normalizeOneEquipmentItemFloorCap 配合） */
-function stripEquipmentHpAtkDefLevelTierMulFromStats(equipment, lvl) {
-    var mul = getEquipmentHpAtkDefLevelTierMul(lvl);
+function stripEquipmentHpAtkDefLevelTierMulFromStats(equipment, lvl, optTierMulBase) {
+    var mul =
+        typeof optTierMulBase === "number" && isFinite(optTierMulBase) && optTierMulBase > 0
+            ? getEquipmentHpAtkDefLevelTierMulAtBase(lvl, optTierMulBase)
+            : getEquipmentHpAtkDefLevelTierMul(lvl);
     if (!equipment || !Array.isArray(equipment.stats) || !isFinite(mul) || mul <= 0 || mul === 1) return;
     for (var i = 0; i < equipment.stats.length; i++) {
         var row = equipment.stats[i];
@@ -663,6 +1170,43 @@ function stripEquipmentHpAtkDefLevelTierMulFromStats(equipment, lvl) {
             row[k] = Math.round(Number(row[k]) / mul);
         }
     }
+}
+
+function getTreasureMapHpAtkDefBonusMul(equipment) {
+    if (!equipment || !equipment.treasureMapDrop) return 1;
+    var m = equipment.treasureMapHpAtkDefMul;
+    if (typeof m === "number" && isFinite(m) && m > 1) return m;
+    return TREASURE_MAP_HP_ATK_DEF_MUL;
+}
+
+function stripTreasureMapHpAtkDefBonusMulFromStats(equipment) {
+    if (!equipment || !equipment.treasureMapHpAtkDefBonusApplied) return;
+    var mul = getTreasureMapHpAtkDefBonusMul(equipment);
+    if (!equipment.stats || !Array.isArray(equipment.stats) || !isFinite(mul) || mul <= 1) return;
+    for (var i = 0; i < equipment.stats.length; i++) {
+        var row = equipment.stats[i];
+        if (!row || typeof row !== "object") continue;
+        var k = Object.keys(row)[0];
+        if (k === "hp" || k === "atk" || k === "def") {
+            row[k] = Math.round(Number(row[k]) / mul);
+        }
+    }
+    equipment.treasureMapHpAtkDefBonusApplied = false;
+}
+
+function applyTreasureMapHpAtkDefBonusMulToStats(equipment) {
+    if (!equipment || !equipment.treasureMapDrop || equipment.treasureMapHpAtkDefBonusApplied) return;
+    var mul = getTreasureMapHpAtkDefBonusMul(equipment);
+    if (!equipment.stats || !Array.isArray(equipment.stats) || !isFinite(mul) || mul <= 1) return;
+    for (var i = 0; i < equipment.stats.length; i++) {
+        var row = equipment.stats[i];
+        if (!row || typeof row !== "object") continue;
+        var k = Object.keys(row)[0];
+        if (k === "hp" || k === "atk" || k === "def") {
+            row[k] = Math.round(Number(row[k]) * mul);
+        }
+    }
+    equipment.treasureMapHpAtkDefBonusApplied = true;
 }
 
 /**
@@ -887,7 +1431,7 @@ function getEquipmentNormalDiceEvenSpread7AllRarities(opt) {
 
 /**
  * 按「本层满敌势（敌势上限系数）」下 createEquipment 的单次掷骰理论上界，对**未乘境界档倍率**的 hp/atk/def 词条总和封顶。
- * 境界档倍率（每 10 级 1.2ⁿ）在封顶之后由 applyEquipmentHpAtkDefLevelTierMulToStats 乘入，不参与本函数缩量。
+ * 境界档倍率（每 10 级 1.45ⁿ）在封顶之后由 applyEquipmentHpAtkDefLevelTierMulToStats 乘入，不参与本函数缩量。
  * 不含淬火/附魔，二者后乘在 enhancement.js。
  * 使用与生成式相同的随机上界：r1,r2=1.5。
  */
@@ -1059,6 +1603,7 @@ function normalizeOneEquipmentItemFloorCap(item) {
     }
 
     var lvlNorm = typeof item.lvl === "number" && item.lvl > 0 ? Math.floor(item.lvl) : 1;
+    stripTreasureMapHpAtkDefBonusMulFromStats(item);
     stripEquipmentHpAtkDefLevelTierMulFromStats(item, lvlNorm);
 
     var loops =
@@ -1069,11 +1614,76 @@ function normalizeOneEquipmentItemFloorCap(item) {
 
     clampEquipmentBaseStatsToFloorFullScalingCap(item, loops, escCap);
     applyEquipmentHpAtkDefLevelTierMulToStats(item, lvlNorm);
+    applyTreasureMapHpAtkDefBonusMulToStats(item);
     recomputeEquipmentSellValueFromBaseStats(item);
 
     if (mulTotal > 1.0001 && typeof scaleEquipmentStatsInPlace === "function") {
         scaleEquipmentStatsInPlace(item, mulTotal);
     }
+}
+
+/** 读档迁移：旧版境界档 ×1.2/档 → ×1.45/档（11 级以上遗器重算 hp/atk/def） */
+function repairPlayerEquipmentHpAtkDefLevelTier145Migrate() {
+    if (typeof player === "undefined" || !player) return false;
+    var legacy =
+        typeof EQUIP_HP_ATK_DEF_LEVEL_TIER_MUL_LEGACY === "number" && isFinite(EQUIP_HP_ATK_DEF_LEVEL_TIER_MUL_LEGACY)
+            ? EQUIP_HP_ATK_DEF_LEVEL_TIER_MUL_LEGACY
+            : 1.2;
+    var changed = false;
+    function procItem(eq) {
+        if (!eq || !Array.isArray(eq.stats)) return;
+        var lvlNorm = typeof eq.lvl === "number" && eq.lvl > 0 ? Math.floor(eq.lvl) : 1;
+        if (lvlNorm <= 10) return;
+
+        var stars = typeof eq.enhanceStars === "number" ? Math.max(0, Math.min(10, Math.floor(eq.enhanceStars))) : 0;
+        var enchPct = typeof eq.enchantPct === "number" ? Math.max(0, Math.floor(eq.enchantPct)) : 0;
+        var mulEnh = typeof getEnhancementStatMul === "function" ? getEnhancementStatMul(stars) : 1;
+        var mulEnch = 1 + enchPct / 100;
+        var mulTotal = mulEnh * mulEnch;
+        if (!isFinite(mulTotal) || mulTotal <= 0) mulTotal = 1;
+
+        var before = JSON.stringify(eq.stats) + "|" + (typeof eq.value === "number" ? eq.value : 0);
+        if (mulTotal > 1.0001 && typeof scaleEquipmentStatsInPlace === "function") {
+            scaleEquipmentStatsInPlace(eq, 1 / mulTotal);
+        }
+
+        stripEquipmentHpAtkDefLevelTierMulFromStats(eq, lvlNorm, legacy);
+
+        var loops =
+            typeof eq.statRollLoops === "number" && eq.statRollLoops >= 1
+                ? Math.floor(eq.statRollLoops)
+                : inferEquipmentStatRollLoopsFromRarity(eq.rarity);
+        var floorHint = getEquipmentFloorHintForClamp(eq);
+        var escCap =
+            typeof getDungeonEnemyScalingCeilingForFloor === "function"
+                ? getDungeonEnemyScalingCeilingForFloor(floorHint)
+                : getEscCeilingForEquipmentDropClamp();
+        clampEquipmentBaseStatsToFloorFullScalingCap(eq, loops, escCap);
+        applyEquipmentHpAtkDefLevelTierMulToStats(eq, lvlNorm);
+        recomputeEquipmentSellValueFromBaseStats(eq);
+
+        if (mulTotal > 1.0001 && typeof scaleEquipmentStatsInPlace === "function") {
+            scaleEquipmentStatsInPlace(eq, mulTotal);
+        }
+
+        var after = JSON.stringify(eq.stats) + "|" + (typeof eq.value === "number" ? eq.value : 0);
+        if (before !== after) changed = true;
+    }
+    if (player.inventory && Array.isArray(player.inventory.equipment)) {
+        for (var i = 0; i < player.inventory.equipment.length; i++) {
+            try {
+                var invItem = JSON.parse(player.inventory.equipment[i]);
+                procItem(invItem);
+                player.inventory.equipment[i] = JSON.stringify(invItem);
+            } catch (e) {}
+        }
+    }
+    if (Array.isArray(player.equipped)) {
+        for (var j = 0; j < player.equipped.length; j++) {
+            if (player.equipped[j]) procItem(player.equipped[j]);
+        }
+    }
+    return changed;
 }
 
 /** 背包 + 已装备遗器一次性套用层封顶（读档迁移）；返回是否改过任意数值（用于决定是否存盘）。 */
@@ -1169,16 +1779,16 @@ const createEquipment = (craftOpts) => {
     // Generate random equipment rarity（须按概率从低到高顺序累加，总和为 1）
     // 高档显著压低；不再按秘境层数限制高阶，全层统一按下列权重
     const rarityChances = [
-        ["Common", 0.882],
-        ["Uncommon", 0.094],
-        ["Rare", 0.014],
-        ["Epic", 0.006],
-        ["Legendary", 0.0025],
-        ["Heirloom", 0.001],
-        ["Etherbound", 0.0003],
-        ["StellarSign", 0.00012],
-        ["Nullforge", 0.00005],
-        ["Chronarch", 0.00002],
+        ["Common", 0.66334],
+        ["Uncommon", 0.25],
+        ["Rare", 0.05],
+        ["Epic", 0.02],
+        ["Legendary", 0.01],
+        ["Heirloom", 0.005],
+        ["Etherbound", 0.001],
+        ["StellarSign", 0.0005],
+        ["Nullforge", 0.0001],
+        ["Chronarch", 0.00005],
         ["Apexother", 0.00001],
     ];
 
@@ -1235,25 +1845,14 @@ const createEquipment = (craftOpts) => {
     }
 
     // Generate and append random stats to the stats array
-    const physicalStats = ["atk", "atkSpd", "vamp", "critRate", "critDmg"];
-    const damageyStats = ["atk", "atk", "vamp", "critRate", "critDmg", "critDmg"];
-    const speedyStats = ["atkSpd", "atkSpd", "vamp", "critRate", "critRate", "critDmg"];
+    /** 武器：十二器型共用均匀池（各属性权重相同，不按品类偏向） */
+    const weaponStatTypesUniform = ["hp", "atk", "def", "atkSpd", "vamp", "critRate", "critDmg"];
     const defenseStats = ["hp", "hp", "def", "def", "atk"];
-    const dmgDefStats = ["hp", "def", "atk", "atk", "critRate", "critDmg"];
     /** 饰品：偏机缘属性，略掺气血护体 */
     const accessoryStats = ["hp", "critRate", "critDmg", "vamp", "atkSpd", "atk", "def", "hp"];
     let statTypes;
     if (equipment.attribute == "Damage") {
-        var c = equipment.category;
-        if (c === "Axe" || c === "Scythe" || c === "Blade" || c === "Glaive") {
-            statTypes = damageyStats;
-        } else if (c === "Dagger" || c === "Flail" || c === "Fan" || c === "Whip") {
-            statTypes = speedyStats;
-        } else if (c === "Hammer" || c === "Staff") {
-            statTypes = dmgDefStats;
-        } else {
-            statTypes = physicalStats;
-        }
+        statTypes = weaponStatTypesUniform;
     } else if (equipment.attribute == "Defense") {
         statTypes = defenseStats;
     } else if (equipment.attribute == "Accessory") {
@@ -1394,11 +1993,18 @@ const createEquipment = (craftOpts) => {
     } catch (e) {}
     maybeRollEquipmentSetTag(equipment);
     maybeRollEquipmentPassiveSkillBonus(equipment);
+    ensureEquipmentInstId(equipment);
     if (!tryPushInventoryEquipment(JSON.stringify(equipment))) {
         return null;
     }
 
-    saveData();
+    if (typeof savePlayerInventoryMutation === "function") {
+        savePlayerInventoryMutation();
+    } else if (typeof player !== "undefined" && player && player.inCombat) {
+        saveData({ forceCloud: true, playerMutation: true });
+    } else {
+        saveData({ forceCloud: true, playerMutation: true });
+    }
     showInventory();
     showEquipment();
 
@@ -1639,9 +2245,68 @@ function formatEquipmentPassiveBonusMetaHtml(item) {
  * 材料批量数量（宝石包启封 / 天赋果喂养）：用游戏内弹窗替代系统 prompt，避免手机/WebView 不弹出。
  * cfg: { title, hint?, max, defaultN?, onConfirm(n), onCancel? }
  */
+function showInvMatSimpleModal(message, okBtnId) {
+    if (typeof defaultModalElement === "undefined" || !defaultModalElement) return;
+    defaultModalElement.style.display = "flex";
+    defaultModalElement.innerHTML =
+        '<div class="content"><p>' +
+        (message || "") +
+        '</p><div class="button-container"><button type="button" id="' +
+        okBtnId +
+        '">知晓</button></div></div>';
+    var okBtn = document.querySelector("#" + okBtnId);
+    if (okBtn) {
+        okBtn.onclick = function () {
+            defaultModalElement.style.display = "none";
+            defaultModalElement.innerHTML = "";
+        };
+    }
+}
+
+function getInvMatBatchQtyCap(holdCount) {
+    var cap =
+        typeof window !== "undefined" && typeof window.DONGTIAN_MAT_DELTA_MAX_PER_OP === "number"
+            ? Math.floor(window.DONGTIAN_MAT_DELTA_MAX_PER_OP)
+            : 2000;
+    if (!isFinite(cap) || cap < 1) cap = 2000;
+    return Math.max(0, Math.min(Math.floor(Number(holdCount) || 0), cap));
+}
+
+function parseInvMatBatchQtyInput(raw, maxV) {
+    var s = String(raw == null ? "" : raw).trim();
+    if (!/^\d+$/.test(s)) return { ok: false, message: "请输入纯数字（不含字母或符号）。" };
+    var n = Math.floor(Number(s));
+    if (!Number.isFinite(n) || n < 1) return { ok: false, message: "请输入 1 及以上的整数。" };
+    maxV = Math.floor(Number(maxV) || 0);
+    if (maxV < 1) return { ok: false, message: "材料不足，无法批量使用。" };
+    if (n > maxV) {
+        var capHint =
+            typeof window !== "undefined" && typeof window.DONGTIAN_MAT_DELTA_MAX_PER_OP === "number"
+                ? window.DONGTIAN_MAT_DELTA_MAX_PER_OP
+                : 2000;
+        return {
+            ok: false,
+            message:
+                maxV < capHint
+                    ? "数量不能超过持有上限（最多 " + maxV + "）。"
+                    : "单次批量最多 " + maxV + "（联网同步上限），请分批操作。",
+        };
+    }
+    return { ok: true, n: n };
+}
+
 function openInvMatBatchQtyModal(cfg) {
     var dm = typeof defaultModalElement !== "undefined" ? defaultModalElement : null;
-    var maxV = Math.max(1, Math.floor(Number(cfg.max) || 1));
+    function resolveMaxV() {
+        var hold = 0;
+        if (typeof cfg.getMax === "function") {
+            hold = Math.max(0, Math.floor(Number(cfg.getMax()) || 0));
+        } else {
+            hold = Math.max(0, Math.floor(Number(cfg.max) || 0));
+        }
+        return getInvMatBatchQtyCap(hold);
+    }
+    var maxV = resolveMaxV();
     var defV = cfg.defaultN != null ? Math.floor(Number(cfg.defaultN)) : Math.min(maxV, 10);
     if (!isFinite(defV) || defV < 1) defV = 1;
     defV = Math.min(defV, maxV);
@@ -1674,8 +2339,8 @@ function openInvMatBatchQtyModal(cfg) {
                 if (typeof cfg.onCancel === "function") cfg.onCancel();
                 return;
             }
-            var n0 = parseInt(String(raw).trim(), 10);
-            if (isFinite(n0) && n0 >= 1) runConfirm(Math.min(n0, maxV));
+            var parsedPrompt = parseInvMatBatchQtyInput(raw, resolveMaxV());
+            if (parsedPrompt.ok) runConfirm(parsedPrompt.n);
         }
         return;
     }
@@ -1687,15 +2352,21 @@ function openInvMatBatchQtyModal(cfg) {
         '<p class="inv-batch-qty-modal__title">' +
         esc(cfg.title || "请输入数量") +
         "</p>" +
-        '<p class="inv-batch-qty-modal__hint">' +
-        esc(cfg.hint != null ? cfg.hint : "范围：1–" + maxV) +
+        '<p class="inv-batch-qty-modal__hint" id="inv-mat-batch-qty-hint">' +
+        esc(
+            typeof cfg.getHint === "function"
+                ? cfg.getHint()
+                : cfg.hint != null
+                  ? cfg.hint
+                  : "范围：1–" + maxV
+        ) +
         "</p>" +
         '<label class="inv-batch-qty-modal__label" for="inv-mat-batch-qty-inp">数量</label>' +
-        '<input type="number" id="inv-mat-batch-qty-inp" class="inv-batch-qty-modal__input" min="1" max="' +
-        maxV +
-        '" step="1" value="' +
+        '<input type="text" id="inv-mat-batch-qty-inp" class="inv-batch-qty-modal__input" inputmode="numeric" pattern="[0-9]*" value="' +
         defV +
-        '" inputmode="numeric" autocomplete="off" />' +
+        '" autocomplete="off" aria-valuemin="1" aria-valuemax="' +
+        maxV +
+        '" />' +
         '<p class="inv-batch-qty-modal__err" id="inv-mat-batch-qty-err" style="display:none;" role="alert"></p>' +
         '<div class="button-container inv-batch-qty-modal__btns">' +
         '<button type="button" class="btn btn--sm btn--ghost" id="inv-mat-batch-qty-cancel">取消</button>' +
@@ -1716,14 +2387,23 @@ function openInvMatBatchQtyModal(cfg) {
         if (errEl) errEl.style.display = "none";
     }
 
+    function refreshHint() {
+        var hintEl = document.getElementById("inv-mat-batch-qty-hint");
+        if (hintEl && typeof cfg.getHint === "function") {
+            hintEl.textContent = cfg.getHint();
+        }
+    }
+
     function trySubmit() {
         hideErr();
-        var n = parseInt(inp && inp.value, 10);
-        if (!isFinite(n) || n < 1) {
-            showErr("请输入 1 及以上的整数。");
+        refreshHint();
+        var liveMax = resolveMaxV();
+        var parsed = parseInvMatBatchQtyInput(inp && inp.value, liveMax);
+        if (!parsed.ok) {
+            showErr(parsed.message || "数量无效。");
             return;
         }
-        runConfirm(Math.min(n, maxV));
+        runConfirm(parsed.n);
     }
 
     var btnCancel = document.getElementById("inv-mat-batch-qty-cancel");
@@ -1766,8 +2446,16 @@ function renderInventoryMaterialsPanel() {
     var stones = typeof getMaterialCount === "function" ? getMaterialCount(MATERIAL_ENHANCE_STONE) : 0;
     var enchStones = typeof getMaterialCount === "function" ? getMaterialCount(MATERIAL_ENCHANT_STONE) : 0;
     var packs = typeof getMaterialCount === "function" && typeof MATERIAL_GEM_PACK !== "undefined" ? getMaterialCount(MATERIAL_GEM_PACK) : 0;
+    var packsSpendable =
+        typeof MATERIAL_GEM_PACK !== "undefined" ? eqGetSpendableMaterialCount(MATERIAL_GEM_PACK) : packs;
+    var yuqiPackKey =
+        typeof window !== "undefined" && typeof window.MATERIAL_YUQI_PACK === "string" ? window.MATERIAL_YUQI_PACK : "yuqi_material_pack";
+    var yuqiPacks = typeof getMaterialCount === "function" ? getMaterialCount(yuqiPackKey) : 0;
+    var yuqiPacksSpendable = eqGetSpendableMaterialCount(yuqiPackKey);
     var openers = typeof getMaterialCount === "function" && typeof MATERIAL_SOCKET_OPENER !== "undefined" ? getMaterialCount(MATERIAL_SOCKET_OPENER) : 0;
     var fruits = typeof getMaterialCount === "function" && typeof MATERIAL_TALENT_FRUIT !== "undefined" ? getMaterialCount(MATERIAL_TALENT_FRUIT) : 0;
+    var fruitsSpendable =
+        typeof MATERIAL_TALENT_FRUIT !== "undefined" ? eqGetSpendableMaterialCount(MATERIAL_TALENT_FRUIT) : fruits;
     /** 勿直接写 MATERIAL_LIFE_POTION 参与求值：未定义时会导致整段 innerHTML 失败，顶栏有数但卡片不刷新 */
     var lifePotKey = typeof MATERIAL_LIFE_POTION !== "undefined" ? MATERIAL_LIFE_POTION : "life_potion";
     var potions = typeof getMaterialCount === "function" ? getMaterialCount(lifePotKey) : 0;
@@ -1791,8 +2479,11 @@ function renderInventoryMaterialsPanel() {
         var s5 = typeof MATERIAL_LIFE_POTION_ZH !== "undefined" ? MATERIAL_LIFE_POTION_ZH + " " + potions : "生命药剂 " + potions;
         var s6 = typeof MATERIAL_PET_EXP_FRUIT_ZH !== "undefined" ? MATERIAL_PET_EXP_FRUIT_ZH + " " + petFruits : "灵宠经验果实 " + petFruits;
         var s7 = typeof MATERIAL_SECRET_REALM_WARP_ZH !== "undefined" ? MATERIAL_SECRET_REALM_WARP_ZH + " " + warpCount : "秘境穿梭器 " + warpCount;
+        var yuqiPackZh =
+            typeof window !== "undefined" && typeof window.MATERIAL_YUQI_PACK_ZH === "string" ? window.MATERIAL_YUQI_PACK_ZH : "御器材料包";
+        var s8 = yuqiPackZh + " " + yuqiPacks;
         matCap.textContent =
-            s1 + " / " + s2 + " / " + s2b + " " + godEss + " / " + s3 + " / " + s4 + " / " + s5 + " / " + s6 + " / " + s7;
+            s1 + " / " + s2 + " / " + s2b + " " + godEss + " / " + s3 + " / " + s4 + " / " + s5 + " / " + s6 + " / " + s7 + " / " + s8;
     }
     var el = document.getElementById("playerInventoryMaterials");
     if (!el) return;
@@ -1800,17 +2491,26 @@ function renderInventoryMaterialsPanel() {
         if (typeof window.DONGTIAN_CLOUD_MODE === "undefined" || !window.DONGTIAN_CLOUD_MODE || !matKey) return "";
         var n = parseInt(amt, 10) || 0;
         if (n < 1) return "";
+        var k = String(matKey).replace(/"/g, "");
         return (
+            '<span class="inv-mat-card__market-actions">' +
             '<button type="button" class="btn btn--sm btn--ghost inv-mat-card__market" data-mat-key="' +
-            String(matKey).replace(/"/g, "") +
+            k +
             '" data-mat-max="' +
             n +
-            '">修仙上架</button>'
+            '">修仙上架</button>' +
+            '<button type="button" class="btn btn--sm btn--ghost inv-mat-card__gift" data-mat-key="' +
+            k +
+            '" data-mat-max="' +
+            n +
+            '">赠送</button></span>'
         );
     }
     var zh = typeof MATERIAL_ENHANCE_STONE_ZH !== "undefined" ? MATERIAL_ENHANCE_STONE_ZH : "强化石";
     var enchZh = typeof MATERIAL_ENCHANT_STONE_ZH !== "undefined" ? MATERIAL_ENCHANT_STONE_ZH : "附魔石";
     var packZh = typeof MATERIAL_GEM_PACK_ZH !== "undefined" ? MATERIAL_GEM_PACK_ZH : "宝石材料包";
+    var packZhYuqi =
+        typeof window !== "undefined" && typeof window.MATERIAL_YUQI_PACK_ZH === "string" ? window.MATERIAL_YUQI_PACK_ZH : "御器材料包";
     var openerZh = typeof MATERIAL_SOCKET_OPENER_ZH !== "undefined" ? MATERIAL_SOCKET_OPENER_ZH : "开孔器";
     var fruitZh = typeof MATERIAL_TALENT_FRUIT_ZH !== "undefined" ? MATERIAL_TALENT_FRUIT_ZH : "天赋果";
     var potionZh = typeof MATERIAL_LIFE_POTION_ZH !== "undefined" ? MATERIAL_LIFE_POTION_ZH : "生命药剂";
@@ -1873,7 +2573,7 @@ function renderInventoryMaterialsPanel() {
         '<span class="inv-mat-card__count">持有 ' +
         godEss +
         "</span>" +
-        '<p class="inv-mat-card__desc">用于遗器<strong>神萃</strong>：每成功 1 级全词条 +2%（上限 +100 级 / +200%）。<strong>神萃石消耗每 10 级档位 +1 枚</strong>（0–9 级每次 1 枚，10–19 级每次 2 枚，以此类推）。麒麟岛副本、修仙坊市等可得。</p>' +
+        '<p class="inv-mat-card__desc">用于遗器<strong>神萃</strong>：每成功 1 级全词条 +2%（上限 +100 级 / +200%）。<strong>神萃石消耗每 10 级档位 +1 枚</strong>（0–9 级每次 1 枚，10–19 级每次 2 枚，以此类推）。秘境击杀邪修约 <strong>3%</strong> 概率掉落 ×1（与藏宝图同类判定；置之不理连战 5 场、登龙塔/魔神塔等不掉）。</p>' +
         invMatMarketHtml(godEssKey, godEss) +
         "</div></div>" +
         '<div class="inv-mat-card inv-mat-card--life-potion" role="group" aria-label="' +
@@ -1907,12 +2607,33 @@ function renderInventoryMaterialsPanel() {
         '<p class="inv-mat-card__desc">启封后可得三枚随机一级宝石（可重复）。叩地脉、历练等机缘可得。</p>' +
         '<div class="inv-mat-card__actions">' +
         '<button type="button" class="btn btn--sm btn--accent" id="inv-use-gem-pack"' +
-        (packs < 1 ? ' disabled="disabled"' : "") +
+        (packsSpendable < 1 ? ' disabled="disabled"' : "") +
         ">启封材料包</button>" +
         '<button type="button" class="btn btn--sm btn--ghost" id="inv-use-gem-pack-batch"' +
-        (packs < 1 ? ' disabled="disabled"' : "") +
+        (packsSpendable < 1 ? ' disabled="disabled"' : "") +
         ">批量使用</button></div>" +
         invMatMarketHtml(MATERIAL_GEM_PACK, packs) +
+        "</div></div>" +
+        '<div class="inv-mat-card inv-mat-card--yuqi-pack" role="group" aria-label="' +
+        packZhYuqi +
+        '">' +
+        '<div class="inv-mat-card__icon" aria-hidden="true"><i class="fas fa-scroll"></i></div>' +
+        '<div class="inv-mat-card__meta">' +
+        '<span class="inv-mat-card__name">' +
+        packZhYuqi +
+        "</span>" +
+        '<span class="inv-mat-card__count">持有 ' +
+        yuqiPacks +
+        "</span>" +
+        '<p class="inv-mat-card__desc">启封后随机一件御器（按品质概率），获得该御器碎片 <strong>1–2</strong> 枚；碎片用于「御器」界面蕴灵升阶。秘境击杀邪修约 <strong>3%</strong> 概率掉落本包 ×1（与藏宝图同类判定）。</p>' +
+        '<div class="inv-mat-card__actions">' +
+        '<button type="button" class="btn btn--sm btn--accent" id="inv-use-yuqi-pack"' +
+        (yuqiPacksSpendable < 1 ? ' disabled="disabled"' : "") +
+        ">启封材料包</button>" +
+        '<button type="button" class="btn btn--sm btn--ghost" id="inv-use-yuqi-pack-batch"' +
+        (yuqiPacksSpendable < 1 ? ' disabled="disabled"' : "") +
+        ">批量使用</button></div>" +
+        invMatMarketHtml(yuqiPackKey, yuqiPacks) +
         "</div></div>" +
         '<div class="inv-mat-card" role="group" aria-label="' +
         openerZh +
@@ -1942,10 +2663,10 @@ function renderInventoryMaterialsPanel() {
         '<p class="inv-mat-card__desc">灵果蕴妖灵之气。喂养<strong>出战灵宠</strong>一次：妖力 +1，用于推动年份进阶（幼年→十年→百年…）。</p>' +
         '<div class="inv-mat-card__actions">' +
         '<button type="button" class="btn btn--sm btn--accent" id="inv-use-talent-fruit"' +
-        (fruits < 1 ? ' disabled="disabled"' : "") +
+        (fruitsSpendable < 1 ? ' disabled="disabled"' : "") +
         ">喂养出战灵宠</button>" +
         '<button type="button" class="btn btn--sm btn--ghost" id="inv-use-talent-fruit-batch"' +
-        (fruits < 1 ? ' disabled="disabled"' : "") +
+        (fruitsSpendable < 1 ? ' disabled="disabled"' : "") +
         ">批量使用</button></div>" +
         invMatMarketHtml(MATERIAL_TALENT_FRUIT, fruits) +
         "</div></div>" +
@@ -1972,7 +2693,7 @@ function renderInventoryMaterialsPanel() {
         ">服用</button>" +
         invMatMarketHtml(typeof MATERIAL_PET_EXP_FRUIT !== "undefined" ? MATERIAL_PET_EXP_FRUIT : petFruitKey, petFruits) +
         "</div></div>" +
-        '<div class="inv-mat-card inv-mat-card--secret-warp" role="group" aria-label="' +
+        '<div class="inv-mat-card inv-mat-card--realm-warp" role="group" aria-label="' +
         warpZh +
         '">' +
         '<div class="inv-mat-card__icon" aria-hidden="true"><i class="fas fa-route"></i></div>' +
@@ -1983,11 +2704,11 @@ function renderInventoryMaterialsPanel() {
         '<span class="inv-mat-card__count">持有 ' +
         warpCount +
         "</span>" +
-        '<p class="inv-mat-card__desc">每次消耗 1 个，可指定跳至更高秘境层的<strong>第 1 劫</strong>（上限：历史最高层 - 1）。跳关后会立刻刷新该层怪物数据。</p>' +
+        '<p class="inv-mat-card__desc">每次消耗 1 个，可指定跳至更高秘境层的<strong>第 1 劫</strong>（上限：历史最高层 - 1）。跳关后会立刻刷新该层怪物数据。击杀本层<strong>第 20 劫层主</strong>有 <strong>50%</strong> 概率掉落 1 个。</p>' +
         '<button type="button" class="btn btn--sm btn--accent" id="inv-use-secret-realm-warp"' +
         (warpCount < 1 ? ' disabled="disabled"' : "") +
         ">穿梭</button>" +
-        invMatMarketHtml(typeof MATERIAL_SECRET_REALM_WARP !== "undefined" ? MATERIAL_SECRET_REALM_WARP : warpKey, warpCount) +
+        invMatMarketHtml(warpKey, warpCount) +
         "</div></div>";
     if (typeof window.DONGTIAN_CLOUD_MODE !== "undefined" && window.DONGTIAN_CLOUD_MODE) {
         el.querySelectorAll(".inv-mat-card__market").forEach(function (btn) {
@@ -2001,45 +2722,62 @@ function renderInventoryMaterialsPanel() {
                 }
             });
         });
+        el.querySelectorAll(".inv-mat-card__gift").forEach(function (btn) {
+            btn.addEventListener("click", function (ev) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                var k = btn.getAttribute("data-mat-key");
+                var mx = parseInt(btn.getAttribute("data-mat-max"), 10) || 0;
+                if (typeof window.dongtianMarketOpenGiftMaterial === "function") {
+                    window.dongtianMarketOpenGiftMaterial(k, mx);
+                }
+            });
+        });
     }
     var usePack = document.getElementById("inv-use-gem-pack");
     if (usePack) {
         usePack.onclick = function () {
             if (usePack.disabled) return;
-            var res = typeof tryOpenGemMaterialPack === "function" ? tryOpenGemMaterialPack() : { ok: false, message: "不可用。" };
-            if (!res.ok) {
+            var packDeltas = {};
+            packDeltas[MATERIAL_GEM_PACK] = -1;
+            eqRunMaterialDeltaThen(usePack, packDeltas, "gem_pack", function () {
+                return typeof tryOpenGemMaterialPack === "function"
+                    ? tryOpenGemMaterialPack({ skipMaterialDeduct: true })
+                    : { ok: false, message: "不可用。" };
+            }).then(function (res) {
+                if (!res.ok) {
+                    if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
+                        defaultModalElement.style.display = "flex";
+                        defaultModalElement.innerHTML =
+                            '<div class="content"><p>' +
+                            (res.message || "") +
+                            '</p><div class="button-container"><button type="button" id="gem-pack-fail-ok">知晓</button></div></div>';
+                        var okp = document.querySelector("#gem-pack-fail-ok");
+                        if (okp) {
+                            okp.onclick = function () {
+                                defaultModalElement.style.display = "none";
+                                defaultModalElement.innerHTML = "";
+                            };
+                        }
+                    }
+                    return;
+                }
                 if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
                     defaultModalElement.style.display = "flex";
                     defaultModalElement.innerHTML =
                         '<div class="content"><p>' +
-                        (res.message || "") +
-                        '</p><div class="button-container"><button type="button" id="gem-pack-fail-ok">知晓</button></div></div>';
-                    var okp = document.querySelector("#gem-pack-fail-ok");
-                    if (okp) {
-                        okp.onclick = function () {
+                        (res.message || "已启封。") +
+                        '</p><div class="button-container"><button type="button" id="gem-pack-ok">知晓</button></div></div>';
+                    var okp2 = document.querySelector("#gem-pack-ok");
+                    if (okp2) {
+                        okp2.onclick = function () {
                             defaultModalElement.style.display = "none";
                             defaultModalElement.innerHTML = "";
                         };
                     }
                 }
-                return;
-            }
-            if (typeof saveData === "function") saveData();
-            if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
-                defaultModalElement.style.display = "flex";
-                defaultModalElement.innerHTML =
-                    '<div class="content"><p>' +
-                    (res.message || "已启封。") +
-                    '</p><div class="button-container"><button type="button" id="gem-pack-ok">知晓</button></div></div>';
-                var okp2 = document.querySelector("#gem-pack-ok");
-                if (okp2) {
-                    okp2.onclick = function () {
-                        defaultModalElement.style.display = "none";
-                        defaultModalElement.innerHTML = "";
-                    };
-                }
-            }
-            renderInventoryMaterialsPanel();
+                renderInventoryMaterialsPanel();
+            });
         };
     }
 
@@ -2048,21 +2786,56 @@ function renderInventoryMaterialsPanel() {
         usePackBatch.onclick = function () {
             if (usePackBatch.disabled) return;
             var maxP =
-                typeof getMaterialCount === "function" && typeof MATERIAL_GEM_PACK !== "undefined"
-                    ? getMaterialCount(MATERIAL_GEM_PACK)
-                    : 0;
+                typeof MATERIAL_GEM_PACK !== "undefined" ? eqGetSpendableMaterialCount(MATERIAL_GEM_PACK) : 0;
             if (maxP < 1) return;
             var packLabel = typeof MATERIAL_GEM_PACK_ZH !== "undefined" ? MATERIAL_GEM_PACK_ZH : "宝石材料包";
             openInvMatBatchQtyModal({
                 title: "批量启封 · " + packLabel,
                 hint: "请输入要启封的份数（1–" + maxP + "）",
                 max: maxP,
+                getMax: function () {
+                    return typeof MATERIAL_GEM_PACK !== "undefined" ? eqGetSpendableMaterialCount(MATERIAL_GEM_PACK) : 0;
+                },
                 defaultN: Math.min(maxP, 10),
                 onConfirm: function (n) {
-                    var resBatch =
-                        typeof tryOpenGemMaterialPacksBatch === "function"
-                            ? tryOpenGemMaterialPacksBatch(n)
-                            : { ok: false, message: "不可用。" };
+                    n = Math.floor(Number(n) || 0);
+                    if (n < 1) return;
+                    eqFlushMaterialsBeforeUse()
+                        .then(function (flushRes) {
+                            if (!flushRes || flushRes.ok === false) {
+                                showInvMatSimpleModal(
+                                    (flushRes && flushRes.message) ||
+                                        "材料尚未与灵网同步完成，请稍后再试。",
+                                    "gem-pack-batch-flush-ok"
+                                );
+                                return null;
+                            }
+                            var liveP =
+                                typeof MATERIAL_GEM_PACK !== "undefined" ? eqGetSpendableMaterialCount(MATERIAL_GEM_PACK) : 0;
+                            if (n > liveP) {
+                                showInvMatSimpleModal(
+                                    "宝石材料包不足（当前持有 " +
+                                        liveP +
+                                        " 份，无法启封 " +
+                                        n +
+                                        " 份）。请先刷新行囊或等待材料同步。",
+                                    "gem-pack-batch-insuf-ok"
+                                );
+                                return null;
+                            }
+                            var batchDeltas = {};
+                            batchDeltas[MATERIAL_GEM_PACK] = -n;
+                            return eqRunMaterialDeltaThen(usePackBatch, batchDeltas, "gem_pack_batch", function () {
+                                var opened =
+                                    typeof tryOpenGemMaterialPacksBatch === "function"
+                                        ? tryOpenGemMaterialPacksBatch(n, { skipMaterialDeduct: true })
+                                        : { ok: false, message: "不可用。", effectFailed: true };
+                                if (opened && opened.ok === false) opened.effectFailed = true;
+                                return opened;
+                            });
+                        })
+                        .then(function (resBatch) {
+                    if (resBatch === null) return;
                     if (!resBatch.ok) {
                         if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
                             defaultModalElement.style.display = "flex";
@@ -2080,22 +2853,180 @@ function renderInventoryMaterialsPanel() {
                         }
                         return;
                     }
-                    if (typeof saveData === "function") saveData();
+                    function showGemPackBatchOkModal() {
+                        if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
+                            defaultModalElement.style.display = "flex";
+                            defaultModalElement.innerHTML =
+                                '<div class="content"><p>' +
+                                (resBatch.message || "已启封。") +
+                                '</p><div class="button-container"><button type="button" id="gem-pack-batch-ok">知晓</button></div></div>';
+                            var okb = document.querySelector("#gem-pack-batch-ok");
+                            if (okb) {
+                                okb.onclick = function () {
+                                    defaultModalElement.style.display = "none";
+                                    defaultModalElement.innerHTML = "";
+                                };
+                            }
+                        }
+                        renderInventoryMaterialsPanel();
+                    }
+                    showGemPackBatchOkModal();
+                    })
+                        .catch(function (eGemBatch) {
+                            showInvMatSimpleModal(
+                                (eGemBatch && eGemBatch.message) || "批量启封异常，请稍后重试。",
+                                "gem-pack-batch-err-ok"
+                            );
+                            if (typeof renderInventoryMaterialsPanel === "function") renderInventoryMaterialsPanel();
+                        });
+                },
+            });
+        };
+    }
+
+    var useYuqiPack = document.getElementById("inv-use-yuqi-pack");
+    if (useYuqiPack) {
+        useYuqiPack.onclick = function () {
+            if (useYuqiPack.disabled) return;
+            var yuqiDeltas = {};
+            yuqiDeltas[yuqiPackKey] = -1;
+            eqRunMaterialDeltaThen(useYuqiPack, yuqiDeltas, "yuqi_pack", function () {
+                return typeof window.tryOpenYuqiMaterialPack === "function"
+                    ? window.tryOpenYuqiMaterialPack({ skipMaterialDeduct: true })
+                    : { ok: false, message: "不可用。" };
+            }).then(function (res) {
+            if (!res.ok) {
+                if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
+                    defaultModalElement.style.display = "flex";
+                    defaultModalElement.innerHTML =
+                        '<div class="content"><p>' +
+                        (res.message || "") +
+                        '</p><div class="button-container"><button type="button" id="yuqi-pack-fail-ok">知晓</button></div></div>';
+                    var oky = document.querySelector("#yuqi-pack-fail-ok");
+                    if (oky) {
+                        oky.onclick = function () {
+                            defaultModalElement.style.display = "none";
+                            defaultModalElement.innerHTML = "";
+                        };
+                    }
+                }
+                return;
+            }
+            if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
+                defaultModalElement.style.display = "flex";
+                defaultModalElement.innerHTML =
+                    '<div class="content"><p>' +
+                    (res.message || "已启封。") +
+                    '</p><div class="button-container"><button type="button" id="yuqi-pack-ok">知晓</button></div></div>';
+                var oky2 = document.querySelector("#yuqi-pack-ok");
+                if (oky2) {
+                    oky2.onclick = function () {
+                        defaultModalElement.style.display = "none";
+                        defaultModalElement.innerHTML = "";
+                    };
+                }
+            }
+            if (typeof calculateStats === "function") calculateStats();
+            if (typeof playerLoadStats === "function") playerLoadStats();
+            renderInventoryMaterialsPanel();
+            });
+        };
+    }
+
+    var useYuqiPackBatch = document.getElementById("inv-use-yuqi-pack-batch");
+    if (useYuqiPackBatch) {
+        useYuqiPackBatch.onclick = function () {
+            if (useYuqiPackBatch.disabled) return;
+            var maxY = eqGetSpendableMaterialCount(yuqiPackKey);
+            if (maxY < 1) return;
+            openInvMatBatchQtyModal({
+                title: "批量启封 · " + packZhYuqi,
+                hint: "请输入要启封的份数（1–" + maxY + "）",
+                max: maxY,
+                getMax: function () {
+                    return eqGetSpendableMaterialCount(yuqiPackKey);
+                },
+                defaultN: Math.min(maxY, 10),
+                onConfirm: function (n) {
+                    n = Math.floor(Number(n) || 0);
+                    if (n < 1) return;
+                    eqFlushMaterialsBeforeUse()
+                        .then(function (flushResY) {
+                            if (!flushResY || flushResY.ok === false) {
+                                showInvMatSimpleModal(
+                                    (flushResY && flushResY.message) ||
+                                        "材料尚未与灵网同步完成，请稍后再试。",
+                                    "yuqi-pack-batch-flush-ok"
+                                );
+                                return null;
+                            }
+                            var liveY = eqGetSpendableMaterialCount(yuqiPackKey);
+                            if (n > liveY) {
+                                showInvMatSimpleModal(
+                                    "御器材料包不足（当前持有 " +
+                                        liveY +
+                                        " 份，无法启封 " +
+                                        n +
+                                        " 份）。请先刷新行囊或等待材料同步。",
+                                    "yuqi-pack-batch-insuf-ok"
+                                );
+                                return null;
+                            }
+                            var yuqiBatchDeltas = {};
+                            yuqiBatchDeltas[yuqiPackKey] = -n;
+                            return eqRunMaterialDeltaThen(useYuqiPackBatch, yuqiBatchDeltas, "yuqi_pack_batch", function () {
+                                var openedY =
+                                    typeof window.tryOpenYuqiMaterialPacksBatch === "function"
+                                        ? window.tryOpenYuqiMaterialPacksBatch(n, { skipMaterialDeduct: true })
+                                        : { ok: false, message: "不可用。", effectFailed: true };
+                                if (openedY && openedY.ok === false) openedY.effectFailed = true;
+                                return openedY;
+                            });
+                        })
+                        .then(function (resB) {
+                    if (resB === null) return;
+                    if (!resB.ok) {
+                        if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
+                            defaultModalElement.style.display = "flex";
+                            defaultModalElement.innerHTML =
+                                '<div class="content"><p>' +
+                                (resB.message || "") +
+                                '</p><div class="button-container"><button type="button" id="yuqi-pack-batch-fail-ok">知晓</button></div></div>';
+                            var okf2 = document.querySelector("#yuqi-pack-batch-fail-ok");
+                            if (okf2) {
+                                okf2.onclick = function () {
+                                    defaultModalElement.style.display = "none";
+                                    defaultModalElement.innerHTML = "";
+                                };
+                            }
+                        }
+                        return;
+                    }
                     if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
                         defaultModalElement.style.display = "flex";
                         defaultModalElement.innerHTML =
                             '<div class="content"><p>' +
-                            (resBatch.message || "已启封。") +
-                            '</p><div class="button-container"><button type="button" id="gem-pack-batch-ok">知晓</button></div></div>';
-                        var okb = document.querySelector("#gem-pack-batch-ok");
-                        if (okb) {
-                            okb.onclick = function () {
+                            (resB.message || "已启封。") +
+                            '</p><div class="button-container"><button type="button" id="yuqi-pack-batch-ok">知晓</button></div></div>';
+                        var okb2 = document.querySelector("#yuqi-pack-batch-ok");
+                        if (okb2) {
+                            okb2.onclick = function () {
                                 defaultModalElement.style.display = "none";
                                 defaultModalElement.innerHTML = "";
                             };
                         }
                     }
+                    if (typeof calculateStats === "function") calculateStats();
+                    if (typeof playerLoadStats === "function") playerLoadStats();
                     renderInventoryMaterialsPanel();
+                    })
+                        .catch(function (eYuqiBatch) {
+                            showInvMatSimpleModal(
+                                (eYuqiBatch && eYuqiBatch.message) || "批量启封异常，请稍后重试。",
+                                "yuqi-pack-batch-err-ok"
+                            );
+                            if (typeof renderInventoryMaterialsPanel === "function") renderInventoryMaterialsPanel();
+                        });
                 },
             });
         };
@@ -2122,10 +3053,13 @@ function renderInventoryMaterialsPanel() {
                 }
                 return;
             }
-            if (typeof getMaterialCount === "function" && typeof addMaterial === "function" && getMaterialCount(MATERIAL_TALENT_FRUIT) < 1) return;
-            addMaterial(MATERIAL_TALENT_FRUIT, -1);
-            var res = typeof addPetYaoli === "function" ? addPetYaoli(pet, 1, "petPanel") : { ok: true };
-            if (typeof saveData === "function") saveData();
+            if (typeof getMaterialCount === "function" && getMaterialCount(MATERIAL_TALENT_FRUIT) < 1) return;
+            var fruitDeltas = {};
+            fruitDeltas[MATERIAL_TALENT_FRUIT] = -1;
+            eqRunMaterialDeltaThen(useFruit, fruitDeltas, "talent_fruit", function () {
+                return typeof addPetYaoli === "function" ? addPetYaoli(pet, 1, "petPanel") : { ok: true };
+            }).then(function (res) {
+            if (!res || res.ok === false) return;
             if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
                 defaultModalElement.style.display = "flex";
                 defaultModalElement.innerHTML =
@@ -2143,6 +3077,7 @@ function renderInventoryMaterialsPanel() {
                 }
             }
             renderInventoryMaterialsPanel();
+            });
         };
     }
 
@@ -2168,42 +3103,125 @@ function renderInventoryMaterialsPanel() {
                 return;
             }
             var maxF =
-                typeof getMaterialCount === "function" && typeof MATERIAL_TALENT_FRUIT !== "undefined"
-                    ? getMaterialCount(MATERIAL_TALENT_FRUIT)
-                    : 0;
+                typeof MATERIAL_TALENT_FRUIT !== "undefined" ? eqGetSpendableMaterialCount(MATERIAL_TALENT_FRUIT) : 0;
             if (maxF < 1) return;
             openInvMatBatchQtyModal({
                 title: "批量喂养 · " + fruitZh,
-                hint: "请输入要喂养的天赋果数量（1–" + maxF + "）",
+                getHint: function () {
+                    var m =
+                        typeof MATERIAL_TALENT_FRUIT !== "undefined"
+                            ? getInvMatBatchQtyCap(eqGetSpendableMaterialCount(MATERIAL_TALENT_FRUIT))
+                            : 0;
+                    return m < 1
+                        ? "当前无可用天赋果。"
+                        : "请输入要喂养的天赋果数量（1–" + m + "）";
+                },
                 max: maxF,
+                getMax: function () {
+                    return typeof MATERIAL_TALENT_FRUIT !== "undefined"
+                        ? eqGetSpendableMaterialCount(MATERIAL_TALENT_FRUIT)
+                        : 0;
+                },
                 defaultN: Math.min(maxF, 10),
                 onConfirm: function (nF) {
-                    if (typeof addMaterial === "function" && typeof MATERIAL_TALENT_FRUIT !== "undefined") {
-                        addMaterial(MATERIAL_TALENT_FRUIT, -nF);
+                    nF = Math.floor(Number(nF) || 0);
+                    if (nF < 1) return;
+                    var petSnap = petB;
+                    if (!petSnap || !petSnap.id) {
+                        showInvMatSimpleModal("尚无出战灵宠，无法喂养。", "talent-fruit-batch-no-pet-inline-ok");
+                        return;
                     }
-                    var resB = typeof addPetYaoli === "function" ? addPetYaoli(petB, nF, "petPanel") : { ok: true };
-                    if (typeof saveData === "function") saveData();
-                    if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
-                        defaultModalElement.style.display = "flex";
-                        defaultModalElement.innerHTML =
-                            '<div class="content"><p>你以 <span class="Legendary">' +
-                            nF +
-                            "</span> 枚" +
-                            fruitZh +
-                            "喂养灵宠，妖力 +" +
-                            nF +
-                            "。" +
-                            (resB && resB.upgraded ? "<br/>灵息翻涌，年份竟有精进！" : "") +
-                            '</p><div class="button-container"><button type="button" id="talent-fruit-batch-ok">知晓</button></div></div>';
-                        var okfb = document.querySelector("#talent-fruit-batch-ok");
-                        if (okfb) {
-                            okfb.onclick = function () {
-                                defaultModalElement.style.display = "none";
-                                defaultModalElement.innerHTML = "";
-                            };
-                        }
-                    }
-                    renderInventoryMaterialsPanel();
+                    eqFlushMaterialsBeforeUse()
+                        .then(function (flushResF) {
+                            if (!flushResF || flushResF.ok === false) {
+                                showInvMatSimpleModal(
+                                    (flushResF && flushResF.message) ||
+                                        "材料尚未与灵网同步完成，请稍后再试。",
+                                    "talent-fruit-batch-flush-ok"
+                                );
+                                return null;
+                            }
+                            var liveCnt =
+                                typeof MATERIAL_TALENT_FRUIT !== "undefined"
+                                    ? eqGetSpendableMaterialCount(MATERIAL_TALENT_FRUIT)
+                                    : 0;
+                            if (nF > liveCnt) {
+                                showInvMatSimpleModal(
+                                    "天赋果不足（当前持有 " +
+                                        liveCnt +
+                                        " 枚，无法使用 " +
+                                        nF +
+                                        " 枚）。请先刷新行囊或等待材料同步。",
+                                    "talent-fruit-batch-insuf-ok"
+                                );
+                                return null;
+                            }
+                            var fruitBatchDeltas = {};
+                            fruitBatchDeltas[MATERIAL_TALENT_FRUIT] = -nF;
+                            return eqRunMaterialDeltaThen(
+                                useFruitBatch,
+                                fruitBatchDeltas,
+                                "talent_fruit_batch",
+                                function () {
+                                    if (typeof applyTalentFruitBatchToPet === "function") {
+                                        return applyTalentFruitBatchToPet(petSnap, nF);
+                                    }
+                                    if (typeof addPetYaoli !== "function") {
+                                        return { ok: false, message: "灵宠模块未就绪。", effectFailed: true };
+                                    }
+                                    var p =
+                                        typeof getPetById === "function" ? getPetById(petSnap.id) : petSnap;
+                                    if (!p) {
+                                        return {
+                                            ok: false,
+                                            message: "出战灵宠已不在栏中，喂养未生效。",
+                                            effectFailed: true,
+                                        };
+                                    }
+                                    return addPetYaoli(p, nF, "petPanel", { skipSave: true, skipPanelRender: true });
+                                }
+                            );
+                        })
+                        .then(function (resB) {
+                            if (resB === null) return;
+                            if (!resB || resB.ok !== true) {
+                                showInvMatSimpleModal(
+                                    (resB && resB.message) || "批量喂养失败，天赋果未消耗。",
+                                    "talent-fruit-batch-fail-ok"
+                                );
+                                if (typeof renderInventoryMaterialsPanel === "function") {
+                                    renderInventoryMaterialsPanel();
+                                }
+                                return;
+                            }
+                            if (typeof saveData === "function") {
+                                saveData({ forceCloud: true, playerMutation: true });
+                            }
+                            if (typeof renderPetPanel === "function") renderPetPanel();
+                            showInvMatSimpleModal(
+                                "你以 <span class=\"Legendary\">" +
+                                    nF +
+                                    "</span> 枚" +
+                                    fruitZh +
+                                    "喂养灵宠，妖力 +" +
+                                    nF +
+                                    "。" +
+                                    (resB && resB.upgraded ? "<br/>灵息翻涌，年份竟有精进！" : ""),
+                                "talent-fruit-batch-ok"
+                            );
+                            if (typeof renderInventoryMaterialsPanel === "function") {
+                                renderInventoryMaterialsPanel();
+                            }
+                        })
+                        .catch(function (eBatch) {
+                            showInvMatSimpleModal(
+                                (eBatch && eBatch.message) || "批量喂养异常，请稍后重试。",
+                                "talent-fruit-batch-err-ok"
+                            );
+                            if (typeof renderInventoryMaterialsPanel === "function") {
+                                renderInventoryMaterialsPanel();
+                            }
+                        });
                 },
             });
         };
@@ -2220,32 +3238,37 @@ function renderInventoryMaterialsPanel() {
             if (typeof playerLoadStats === "function") playerLoadStats();
             var cap = typeof player.stats.hpMax === "number" && isFinite(player.stats.hpMax) ? Math.max(1, Math.floor(player.stats.hpMax)) : 1;
             var heal = Math.max(1, Math.round(cap * 0.5));
-            addMaterial(lifePotKey, -1);
-            var cur = typeof player.stats.hp === "number" && isFinite(player.stats.hp) ? player.stats.hp : 0;
-            player.stats.hp = Math.min(cap, cur + heal);
-            if (typeof playerLoadStats === "function") playerLoadStats();
-            if (typeof saveData === "function") saveData();
-            if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
-                defaultModalElement.style.display = "flex";
-                defaultModalElement.innerHTML =
-                    '<div class="content"><p>你服下<span class="Rare">' +
-                    potionZh +
-                    "</span>，气血回复 <b>" +
-                    nFormatter(heal) +
-                    "</b>（当前 " +
-                    nFormatter(player.stats.hp) +
-                    " / " +
-                    nFormatter(cap) +
-                    '）。</p><div class="button-container"><button type="button" id="life-potion-ok">知晓</button></div></div>';
-                var pok = document.querySelector("#life-potion-ok");
-                if (pok) {
-                    pok.onclick = function () {
-                        defaultModalElement.style.display = "none";
-                        defaultModalElement.innerHTML = "";
-                    };
+            var potDeltas = {};
+            potDeltas[lifePotKey] = -1;
+            eqRunMaterialDeltaThen(usePotion, potDeltas, "life_potion", function () {
+                var cur = typeof player.stats.hp === "number" && isFinite(player.stats.hp) ? player.stats.hp : 0;
+                player.stats.hp = Math.min(cap, cur + heal);
+                if (typeof playerLoadStats === "function") playerLoadStats();
+                return { ok: true, heal: heal, cap: cap };
+            }).then(function (res) {
+                if (!res || !res.ok) return;
+                if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
+                    defaultModalElement.style.display = "flex";
+                    defaultModalElement.innerHTML =
+                        '<div class="content"><p>你服下<span class="Rare">' +
+                        potionZh +
+                        "</span>，气血回复 <b>" +
+                        nFormatter(res.heal) +
+                        "</b>（当前 " +
+                        nFormatter(player.stats.hp) +
+                        " / " +
+                        nFormatter(res.cap) +
+                        '）。</p><div class="button-container"><button type="button" id="life-potion-ok">知晓</button></div></div>';
+                    var pok = document.querySelector("#life-potion-ok");
+                    if (pok) {
+                        pok.onclick = function () {
+                            defaultModalElement.style.display = "none";
+                            defaultModalElement.innerHTML = "";
+                        };
+                    }
                 }
-            }
-            renderInventoryMaterialsPanel();
+                renderInventoryMaterialsPanel();
+            });
         };
     }
 
@@ -2253,7 +3276,13 @@ function renderInventoryMaterialsPanel() {
     if (usePetExpFruit) {
         usePetExpFruit.onclick = function () {
             if (usePetExpFruit.disabled) return;
-            var res = typeof tryUsePetExpFruit === "function" ? tryUsePetExpFruit() : { ok: false, message: "不可用。" };
+            var petFruitDeltas = {};
+            if (typeof MATERIAL_PET_EXP_FRUIT !== "undefined") petFruitDeltas[MATERIAL_PET_EXP_FRUIT] = -1;
+            eqRunMaterialDeltaThen(usePetExpFruit, petFruitDeltas, "pet_exp_fruit", function () {
+                return typeof tryUsePetExpFruit === "function"
+                    ? tryUsePetExpFruit({ skipMaterialDeduct: true })
+                    : { ok: false, message: "不可用。" };
+            }).then(function (res) {
             if (!res.ok) {
                 if (typeof defaultModalElement !== "undefined" && defaultModalElement && res.message) {
                     defaultModalElement.style.display = "flex";
@@ -2271,7 +3300,6 @@ function renderInventoryMaterialsPanel() {
                 }
                 return;
             }
-            if (typeof saveData === "function") saveData();
             if (typeof defaultModalElement !== "undefined" && defaultModalElement && res.message) {
                 defaultModalElement.style.display = "flex";
                 defaultModalElement.innerHTML =
@@ -2287,6 +3315,7 @@ function renderInventoryMaterialsPanel() {
                 }
             }
             renderInventoryMaterialsPanel();
+            });
         };
     }
 
@@ -2354,28 +3383,32 @@ function renderInventoryMaterialsPanel() {
                     }
                     var haveNow = typeof getMaterialCount === "function" ? getMaterialCount(warpKey) : 0;
                     if (haveNow < 1) return;
-                    if (typeof addMaterial === "function") addMaterial(warpKey, -1);
-                    dungeon.progress.floor = targetFloor;
-                    dungeon.progress.room = 1;
-                    dungeon.action = 0;
-                    if (dungeon.status && typeof dungeon.status === "object") dungeon.status.event = false;
-                    if (typeof loadDungeonProgress === "function") loadDungeonProgress();
-                    if (typeof generateRandomEnemy === "function") {
-                        generateRandomEnemy();
-                        if (typeof setEnemyStats === "function" && typeof enemy !== "undefined" && enemy && enemy.type) {
-                            setEnemyStats(enemy.type, undefined);
+                    var warpDeltas = {};
+                    warpDeltas[warpKey] = -1;
+                    eqRunMaterialDeltaThen(useRealmWarp, warpDeltas, "secret_realm_warp", function () {
+                        dungeon.progress.floor = targetFloor;
+                        dungeon.progress.room = 1;
+                        dungeon.action = 0;
+                        if (dungeon.status && typeof dungeon.status === "object") dungeon.status.event = false;
+                        if (typeof loadDungeonProgress === "function") loadDungeonProgress();
+                        if (typeof generateRandomEnemy === "function") {
+                            generateRandomEnemy();
+                            if (typeof setEnemyStats === "function" && typeof enemy !== "undefined" && enemy && enemy.type) {
+                                setEnemyStats(enemy.type, undefined);
+                            }
                         }
-                    }
-                    if (typeof addDungeonLog === "function") {
-                        addDungeonLog("你催动秘境穿梭器，破界直抵第 " + targetFloor + " 层第 1 劫。");
-                    }
-                    if (typeof updateDungeonLog === "function") updateDungeonLog();
-                    if (typeof saveData === "function") saveData();
+                        if (typeof addDungeonLog === "function") {
+                            addDungeonLog("你催动秘境穿梭器，破界直抵第 " + targetFloor + " 层第 1 劫。");
+                        }
+                        if (typeof updateDungeonLog === "function") updateDungeonLog();
+                        return { ok: true, targetFloor: targetFloor };
+                    }).then(function (res) {
+                        if (!res || !res.ok) return;
                     if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
                         defaultModalElement.style.display = "flex";
                         defaultModalElement.innerHTML =
                             '<div class="content"><p>秘境穿梭成功：已抵达第 <b>' +
-                            targetFloor +
+                            res.targetFloor +
                             "</b> 层第 <b>1</b> 劫。<br/>本层怪物数据已刷新。</p><div class=\"button-container\"><button type=\"button\" id=\"realm-warp-ok\">知晓</button></div></div>";
                         var ok = document.querySelector("#realm-warp-ok");
                         if (ok) {
@@ -2386,6 +3419,7 @@ function renderInventoryMaterialsPanel() {
                         }
                     }
                     renderInventoryMaterialsPanel();
+                    });
                 },
             });
         };
@@ -2493,7 +3527,7 @@ function renderInventoryGemsPanel() {
                 var ll = Math.floor(Number(b.getAttribute("data-glv")) || 1);
                 var res = typeof tryMergeGemsInInventory === "function" ? tryMergeGemsInInventory(kk, ll) : { ok: false };
                 if (!res.ok) return;
-                if (typeof saveData === "function") saveData();
+                savePlayerInventoryMutation(window.DONGTIAN_CLOUD_MODE ? 2800 : 0);
                 if (typeof defaultModalElement !== "undefined" && defaultModalElement && res.message) {
                     defaultModalElement.style.display = "flex";
                     defaultModalElement.innerHTML =
@@ -2521,7 +3555,7 @@ function renderInventoryGemsPanel() {
                 var ll = Math.floor(Number(b.getAttribute("data-glv")) || 2);
                 var res = typeof trySplitGemsInInventory === "function" ? trySplitGemsInInventory(kk, ll) : { ok: false };
                 if (!res.ok) return;
-                if (typeof saveData === "function") saveData();
+                savePlayerInventoryMutation(window.DONGTIAN_CLOUD_MODE ? 2800 : 0);
                 if (typeof defaultModalElement !== "undefined" && defaultModalElement && res.message) {
                     defaultModalElement.style.display = "flex";
                     defaultModalElement.innerHTML =
@@ -2547,7 +3581,7 @@ function renderInventoryGemsPanel() {
             if (typeof tryMergeAllGemsInInventoryToMax !== "function") return;
             var res = tryMergeAllGemsInInventoryToMax();
             if (!res || !res.message) return;
-            if (res.ok && typeof saveData === "function") saveData();
+            if (res.ok) savePlayerInventoryMutation(window.DONGTIAN_CLOUD_MODE ? 2800 : 0);
             if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
                 defaultModalElement.style.display = "flex";
                 defaultModalElement.innerHTML =
@@ -3046,7 +4080,22 @@ const showItemInfo = (item, icon, type, i) => {
                     : type === "Unequip" && player.equipped && player.equipped[i]
                       ? player.equipped[i]
                       : item;
-            var res = tryEnhanceInventoryItem(live);
+            var es0 = typeof live.enhanceStars === "number" ? Math.max(0, Math.min(10, Math.floor(live.enhanceStars))) : 0;
+            if (es0 >= 10) return;
+            var enhCost =
+                typeof getEnhanceStoneCostForTargetStar === "function"
+                    ? getEnhanceStoneCostForTargetStar(es0 + 1)
+                    : 1;
+            var enhDeltas = {};
+            enhDeltas[MATERIAL_ENHANCE_STONE] = -enhCost;
+            var runEnh =
+                typeof window.dongtianRunEquipOpAfterMaterialDelta === "function"
+                    ? window.dongtianRunEquipOpAfterMaterialDelta
+                    : null;
+            var enhPromise = runEnh
+                ? runEnh(enhBtn, live, enhDeltas, "enhance", tryEnhanceInventoryItem)
+                : Promise.resolve(tryEnhanceInventoryItem(live));
+            enhPromise.then(function (res) {
             if (!res.ok) {
                 if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
                     defaultModalElement.style.display = "flex";
@@ -3070,7 +4119,9 @@ const showItemInfo = (item, icon, type, i) => {
                 player.equipped[i] = live;
             }
             if (typeof applyEquipmentStats === "function") applyEquipmentStats();
-            if (typeof saveData === "function") saveData();
+            if (typeof savePlayerInventoryMutation === "function") {
+                savePlayerInventoryMutation(window.DONGTIAN_CLOUD_MODE ? 2800 : 0);
+            }
             if (typeof showInventory === "function") showInventory();
             if (typeof showEquipment === "function") showEquipment();
             var ic2 = equipmentIcon(live.category);
@@ -3094,6 +4145,7 @@ const showItemInfo = (item, icon, type, i) => {
             } else {
                 showItemInfo(live, ic2, type, i);
             }
+            });
         };
     }
 
@@ -3107,7 +4159,17 @@ const showItemInfo = (item, icon, type, i) => {
                     : type === "Unequip" && player.equipped && player.equipped[i]
                       ? player.equipped[i]
                       : item;
-            var res = tryEnchantInventoryItem(live);
+            var enchCost = typeof getEnchantStoneCostForNext === "function" ? getEnchantStoneCostForNext(live) : 1;
+            var enchDeltas = {};
+            enchDeltas[MATERIAL_ENCHANT_STONE] = -enchCost;
+            var runEnch =
+                typeof window.dongtianRunEquipOpAfterMaterialDelta === "function"
+                    ? window.dongtianRunEquipOpAfterMaterialDelta
+                    : null;
+            var enchPromise = runEnch
+                ? runEnch(enchBtn, live, enchDeltas, "enchant", tryEnchantInventoryItem)
+                : Promise.resolve(tryEnchantInventoryItem(live));
+            enchPromise.then(function (res) {
             if (!res.ok) {
                 if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
                     defaultModalElement.style.display = "flex";
@@ -3131,7 +4193,9 @@ const showItemInfo = (item, icon, type, i) => {
                 player.equipped[i] = live;
             }
             if (typeof applyEquipmentStats === "function") applyEquipmentStats();
-            if (typeof saveData === "function") saveData();
+            if (typeof savePlayerInventoryMutation === "function") {
+                savePlayerInventoryMutation(window.DONGTIAN_CLOUD_MODE ? 2800 : 0);
+            }
             if (typeof showInventory === "function") showInventory();
             if (typeof showEquipment === "function") showEquipment();
             var ic3 = equipmentIcon(live.category);
@@ -3155,6 +4219,7 @@ const showItemInfo = (item, icon, type, i) => {
             } else {
                 showItemInfo(live, ic3, type, i);
             }
+            });
         };
     }
 
@@ -3173,7 +4238,28 @@ const showItemInfo = (item, icon, type, i) => {
                     : type === "Unequip" && player.equipped && player.equipped[i]
                       ? player.equipped[i]
                       : item;
-            var res = _tryGodForClick(live);
+            var godEssKey =
+                typeof MATERIAL_GOD_ESSENCE_STONE !== "undefined"
+                    ? MATERIAL_GOD_ESSENCE_STONE
+                    : typeof window !== "undefined" && window.MATERIAL_GOD_ESSENCE_STONE
+                      ? window.MATERIAL_GOD_ESSENCE_STONE
+                      : "god_essence_stone";
+            var divLvl =
+                typeof getDivineExtractLvl === "function" ? getDivineExtractLvl(live) : 0;
+            var divCost =
+                typeof getDivineExtractStoneCostForNextAttempt === "function"
+                    ? getDivineExtractStoneCostForNextAttempt(divLvl)
+                    : 1;
+            var divDeltas = {};
+            divDeltas[godEssKey] = -divCost;
+            var runDiv =
+                typeof window.dongtianRunEquipOpAfterMaterialDelta === "function"
+                    ? window.dongtianRunEquipOpAfterMaterialDelta
+                    : null;
+            var divPromise = runDiv
+                ? runDiv(divineBtn, live, divDeltas, "god_essence", _tryGodForClick)
+                : Promise.resolve(_tryGodForClick(live));
+            divPromise.then(function (res) {
             if (!res.ok) {
                 if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
                     defaultModalElement.style.display = "flex";
@@ -3197,7 +4283,9 @@ const showItemInfo = (item, icon, type, i) => {
                 player.equipped[i] = live;
             }
             if (typeof applyEquipmentStats === "function") applyEquipmentStats();
-            if (typeof saveData === "function") saveData();
+            if (typeof savePlayerInventoryMutation === "function") {
+                savePlayerInventoryMutation(window.DONGTIAN_CLOUD_MODE ? 2800 : 0);
+            }
             if (typeof showInventory === "function") showInventory();
             if (typeof showEquipment === "function") showEquipment();
             var ic4 = equipmentIcon(live.category);
@@ -3221,6 +4309,7 @@ const showItemInfo = (item, icon, type, i) => {
             } else {
                 showItemInfo(live, ic4, type, i);
             }
+            });
         };
     }
 
@@ -3240,7 +4329,7 @@ const showItemInfo = (item, icon, type, i) => {
         if (type === "Equip") replaceInventoryEquipmentAtIndex(i, live);
         else if (type === "Unequip") player.equipped[i] = live;
         if (typeof applyEquipmentStats === "function") applyEquipmentStats();
-        if (typeof saveData === "function") saveData();
+        savePlayerInventoryMutation();
         if (typeof showInventory === "function") showInventory();
         if (typeof showEquipment === "function") showEquipment();
         var icg = equipmentIcon(live.category);
@@ -3250,7 +4339,11 @@ const showItemInfo = (item, icon, type, i) => {
     if (openSock && typeof tryUseSocketOpenerOnItem === "function") {
         openSock.onclick = function () {
             var live = getLiveEquipmentForGems();
-            var res = tryUseSocketOpenerOnItem(live);
+            var sockDeltas = {};
+            if (typeof MATERIAL_SOCKET_OPENER !== "undefined") sockDeltas[MATERIAL_SOCKET_OPENER] = -1;
+            eqRunMaterialDeltaThen(openSock, sockDeltas, "socket_opener", function () {
+                return tryUseSocketOpenerOnItem(live, { skipMaterialDeduct: true });
+            }).then(function (res) {
             if (!res.ok) {
                 if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
                     defaultModalElement.style.display = "flex";
@@ -3283,6 +4376,7 @@ const showItemInfo = (item, icon, type, i) => {
                     };
                 }
             }
+            });
         };
     }
     var inlayBtns = document.querySelectorAll(".eq-gem-inlay");
@@ -3336,6 +4430,7 @@ const showItemInfo = (item, icon, type, i) => {
             var o = JSON.parse(player.inventory.equipment[i]);
             o.locked = !o.locked;
             replaceInventoryEquipmentAtIndex(i, o);
+            savePlayerInventoryMutation();
             showItemInfo(JSON.parse(player.inventory.equipment[i]), icon, type, i);
         };
     }
@@ -3367,6 +4462,7 @@ const showItemInfo = (item, icon, type, i) => {
             if (!equipItem.type || !EQUIP_SLOT_TYPE_SET[equipItem.type]) {
                 return;
             }
+            ensureEquipmentInstId(equipItem);
 
             // 穿戴上限限制：只能穿历史最高等级 + 5 以下装备
             try {
@@ -3409,11 +4505,14 @@ const showItemInfo = (item, icon, type, i) => {
             }
             player.equipped.push(equipItem);
             sortEquippedBySlotOrder();
+            if (reconcileEquippedInventoryDuplicates()) {
+                persistEquipmentDedupeIfNeeded(true);
+            }
 
             itemInfo.style.display = "none";
             dimContainer.style.filter = "brightness(100%)";
             playerLoadStats();
-            saveData();
+            saveData({ forceCloud: true, playerMutation: true });
             continueExploring();
         } else if (type == "Unequip") {
 
@@ -3431,7 +4530,7 @@ const showItemInfo = (item, icon, type, i) => {
             itemInfo.style.display = "none";
             dimContainer.style.filter = "brightness(100%)";
             playerLoadStats();
-            saveData();
+            saveData({ forceCloud: true, playerMutation: true });
             continueExploring();
         }
     };
@@ -3476,7 +4575,11 @@ const showItemInfo = (item, icon, type, i) => {
             defaultModalElement.innerHTML = "";
             dimContainer.style.filter = "brightness(100%)";
             playerLoadStats();
-            saveData();
+            if (typeof savePlayerInventoryMutation === "function") {
+                savePlayerInventoryMutation(6000);
+            } else {
+                saveData({ forceCloud: true, playerMutation: true });
+            }
             continueExploring();
         }
         cancel.onclick = function () {
@@ -3564,7 +4667,7 @@ function learnSectPassive(id) {
         player.learnedPassiveLevels[id] = 1;
     }
     playerLoadStats();
-    saveData();
+    savePlayerInventoryMutation();
 }
 
 function toggleSectPassive(id) {
@@ -3582,7 +4685,7 @@ function toggleSectPassive(id) {
     }
     player.equippedPassives = eq;
     playerLoadStats();
-    saveData();
+    savePlayerInventoryMutation();
 }
 
 function sectHtmlEscape(str) {
@@ -3593,54 +4696,79 @@ function sectHtmlEscape(str) {
         .replace(/"/g, "&quot;");
 }
 
-function renderSectPassivePanel(containerId) {
-    var el = document.getElementById(containerId || "sectPassivePanelModal");
-    if (!el || typeof PASSIVE_BY_ID === "undefined" || typeof getPassivesForSect !== "function") {
-        if (el) el.innerHTML = "";
-        return;
-    }
-    if (typeof objectValidation === "function") objectValidation();
-    var sid = player.sect;
-    var sect = typeof getSectById === "function" ? getSectById(sid) : null;
-    if (!sid || !sect) {
-        el.innerHTML = "<div class=\"sect-ui sect-ui--empty\"><div class=\"sect-ui__empty-inner\"><i class=\"fas fa-book-open\" aria-hidden=\"true\"></i><p>尚未加入门派</p><span class=\"sect-ui__empty-hint\">完成塑道本源后可选择门派</span></div></div>";
-        return;
-    }
-    var list = getPassivesForSect(sid);
-    var learned = player.learnedPassives || [];
-    var equipped = player.equippedPassives || [];
-    var learnedLv = player.learnedPassiveLevels || {};
-    var eqBonusLvMap = typeof getEquippedPassiveBonusLevelMap === "function" ? getEquippedPassiveBonusLevelMap() : {};
-    var maxSlots = typeof MAX_EQUIPPED_PASSIVES === "number" ? MAX_EQUIPPED_PASSIVES : 3;
+/** 门派功法：滚动条在 .sect-ui__scroll 上；仅作记忆（首屏/整页重建时用） */
+function sectPassiveScrollMemListener(ev) {
+    var t = ev.target;
+    var body = document.getElementById("sectPassivePanelModal");
+    if (!body || !t || typeof t.scrollTop !== "number") return;
+    body.__sectPassiveScrollMem = t.scrollTop;
+}
+
+function applySectPassivePanelScroll(el, y) {
+    var sc = el && el.querySelector ? el.querySelector(".sect-ui__scroll") : null;
+    if (!sc) return;
+    var raw = typeof y === "number" && isFinite(y) ? y : 0;
+    var max = Math.max(0, sc.scrollHeight - sc.clientHeight);
+    var v = Math.max(0, Math.min(raw, max));
+    sc.scrollTop = v;
+    el.__sectPassiveScrollMem = v;
+}
+
+function ensureSectPassiveScrollListener(el) {
+    var sc = el.querySelector(".sect-ui__scroll");
+    if (!sc || sc._sectPassiveScrollBound) return;
+    sc._sectPassiveScrollBound = true;
+    sc.addEventListener("scroll", sectPassiveScrollMemListener, { passive: true });
+}
+
+function wireSectPassivePanelButtons(el) {
+    el.querySelectorAll("[data-learn]").forEach(function (btn) {
+        btn.onclick = function () {
+            learnSectPassive(btn.getAttribute("data-learn"));
+        };
+    });
+    el.querySelectorAll("[data-toggle]").forEach(function (btn) {
+        btn.onclick = function () {
+            toggleSectPassive(btn.getAttribute("data-toggle"));
+        };
+    });
+}
+
+/** 顶部门派信息 + 斗法携带（不含列表） */
+function buildSectPassiveHeroHtml(sid, sect, equipped, maxSlots) {
     var slotsDots = "";
     for (var si = 0; si < maxSlots; si++) {
         slotsDots += "<span class=\"sect-ui__slot-dot" + (si < equipped.length ? " is-on" : "") + "\"></span>";
     }
-    var html = "<div class=\"sect-ui\">";
-    html += "<header class=\"sect-ui__hero\">";
-    html += "<div class=\"sect-ui__hero-text\">";
-    html += "<span class=\"sect-ui__kicker\">门派信息</span>";
-    html += "<h4 class=\"sect-ui__sect-title\">" + sectHtmlEscape(sect.name);
+    var h = "<header class=\"sect-ui__hero\">";
+    h += "<div class=\"sect-ui__hero-text\">";
+    h += "<span class=\"sect-ui__kicker\">门派信息</span>";
+    h += "<h4 class=\"sect-ui__sect-title\">" + sectHtmlEscape(sect.name);
     var weaponZh = typeof getSectWeaponTypeZh === "function" ? getSectWeaponTypeZh(sid) : "";
     if (weaponZh) {
-        html += "<span class=\"sect-ui__weapon-type\" aria-label=\"专属器型\"> · 本命" + sectHtmlEscape(weaponZh) + "</span>";
+        h += "<span class=\"sect-ui__weapon-type\" aria-label=\"专属器型\"> · 本命" + sectHtmlEscape(weaponZh) + "</span>";
     }
     var armorAffix = getSectArmorAffinitySummaryZh(sid);
     if (armorAffix) {
-        html += "<span class=\"sect-ui__weapon-type\" aria-label=\"对应甲种\"> · " + sectHtmlEscape(armorAffix) + "</span>";
+        h += "<span class=\"sect-ui__weapon-type\" aria-label=\"对应甲种\"> · " + sectHtmlEscape(armorAffix) + "</span>";
     }
-    html += "</h4>";
-    html += "<p class=\"sect-ui__blurb\">" + sectHtmlEscape(sect.blurb) + "</p>";
-    html += "</div>";
-    html += "<div class=\"sect-ui__hero-side\">";
-    html += "<div class=\"sect-ui__slots-box\">";
-    html += "<span class=\"sect-ui__slots-label\">斗法携带</span>";
-    html += "<div class=\"sect-ui__slot-dots\">" + slotsDots + "</div>";
-    html += "<span class=\"sect-ui__slots-num\">" + equipped.length + "/" + maxSlots + "</span>";
-    html += "</div>";
-    html += "<p class=\"sect-ui__rule\">每场战斗最多 " + maxSlots + " 个被动上阵</p>";
-    html += "</div></header>";
-    html += "<div class=\"sect-ui__scroll\"><ul class=\"sect-ui__list\">";
+    h += "</h4>";
+    h += "<p class=\"sect-ui__blurb\">" + sectHtmlEscape(sect.blurb) + "</p>";
+    h += "</div>";
+    h += "<div class=\"sect-ui__hero-side\">";
+    h += "<div class=\"sect-ui__slots-box\">";
+    h += "<span class=\"sect-ui__slots-label\">斗法携带</span>";
+    h += "<div class=\"sect-ui__slot-dots\">" + slotsDots + "</div>";
+    h += "<span class=\"sect-ui__slots-num\">" + equipped.length + "/" + maxSlots + "</span>";
+    h += "</div>";
+    h += "<p class=\"sect-ui__rule\">每场战斗最多 " + maxSlots + " 个被动上阵</p>";
+    h += "</div></header>";
+    return h;
+}
+
+/** 仅 li 卡片 HTML 拼接，供增量更新 ul.innerHTML */
+function buildSectPassiveListItemsHtml(list, learned, equipped, learnedLv, eqBonusLvMap, sid) {
+    var html = "";
     for (var i = 0; i < list.length; i++) {
         var p = list[i];
         var isLearned = learned.indexOf(p.id) >= 0;
@@ -3715,28 +4843,139 @@ function renderSectPassivePanel(containerId) {
         }
         html += "</div></li>";
     }
-    html += "</ul></div></div>";
+    return html;
+}
+
+function renderSectPassivePanel(containerId) {
+    var el = document.getElementById(containerId || "sectPassivePanelModal");
+    if (!el || typeof PASSIVE_BY_ID === "undefined" || typeof getPassivesForSect !== "function") {
+        if (el) el.innerHTML = "";
+        return;
+    }
+    var prevSectScroll = el.querySelector(".sect-ui__scroll");
+    var domTop = prevSectScroll ? prevSectScroll.scrollTop : 0;
+    var memTop = typeof el.__sectPassiveScrollMem === "number" && isFinite(el.__sectPassiveScrollMem) ? el.__sectPassiveScrollMem : 0;
+    var savedSectScroll = Math.max(domTop, memTop);
+    try {
+        var ae = document.activeElement;
+        if (ae && el.contains(ae) && typeof ae.blur === "function") ae.blur();
+    } catch (eBlur) {}
+    if (typeof objectValidation === "function") objectValidation();
+    var sid = player.sect;
+    var sect = typeof getSectById === "function" ? getSectById(sid) : null;
+    if (!sid || !sect) {
+        el.innerHTML = "<div class=\"sect-ui sect-ui--empty\"><div class=\"sect-ui__empty-inner\"><i class=\"fas fa-book-open\" aria-hidden=\"true\"></i><p>尚未加入门派</p><span class=\"sect-ui__empty-hint\">完成塑道本源后可选择门派</span></div></div>";
+        return;
+    }
+    var list = getPassivesForSect(sid);
+    var learned = player.learnedPassives || [];
+    var equipped = player.equippedPassives || [];
+    var learnedLv = player.learnedPassiveLevels || {};
+    var eqBonusLvMap = typeof getEquippedPassiveBonusLevelMap === "function" ? getEquippedPassiveBonusLevelMap() : {};
+    var maxSlots = typeof MAX_EQUIPPED_PASSIVES === "number" ? MAX_EQUIPPED_PASSIVES : 3;
+    var heroHtml = buildSectPassiveHeroHtml(sid, sect, equipped, maxSlots);
+    var listItemsHtml = buildSectPassiveListItemsHtml(list, learned, equipped, learnedLv, eqBonusLvMap, sid);
+
+    var rootUi = el.querySelector(".sect-ui:not(.sect-ui--empty)");
+    var listEl = rootUi && rootUi.querySelector(".sect-ui__list");
+    var patchOk =
+        !!rootUi &&
+        !!listEl &&
+        rootUi.getAttribute("data-sect-id") === String(sid);
+
+    if (patchOk) {
+        listEl.innerHTML = listItemsHtml;
+        var heroEl = rootUi.querySelector(".sect-ui__hero");
+        if (heroEl) {
+            heroEl.outerHTML = heroHtml;
+        }
+        wireSectPassivePanelButtons(el);
+        ensureSectPassiveScrollListener(el);
+        return;
+    }
+
+    var html =
+        "<div class=\"sect-ui\" data-sect-id=\"" +
+        sectHtmlEscape(String(sid)) +
+        "\">" +
+        heroHtml +
+        "<div class=\"sect-ui__scroll\"><ul class=\"sect-ui__list\">" +
+        listItemsHtml +
+        "</ul></div></div>";
     el.innerHTML = html;
-    el.querySelectorAll("[data-learn]").forEach(function (btn) {
-        btn.onclick = function () {
-            learnSectPassive(btn.getAttribute("data-learn"));
-        };
-    });
-    el.querySelectorAll("[data-toggle]").forEach(function (btn) {
-        btn.onclick = function () {
-            toggleSectPassive(btn.getAttribute("data-toggle"));
-        };
+    wireSectPassivePanelButtons(el);
+    ensureSectPassiveScrollListener(el);
+    var scrollRestoreTarget = savedSectScroll;
+    applySectPassivePanelScroll(el, scrollRestoreTarget);
+    requestAnimationFrame(function () {
+        applySectPassivePanelScroll(el, scrollRestoreTarget);
     });
 }
 
 function refreshSectPassiveModal() {
-    if (typeof renderSectPassivePanel === "function") renderSectPassivePanel("sectPassivePanelModal");
+    if (
+        typeof sectPassivesModalOpen !== "undefined" &&
+        sectPassivesModalOpen &&
+        typeof renderSectPassivePanel === "function"
+    ) {
+        renderSectPassivePanel("sectPassivePanelModal");
+    }
+}
+
+/** 行囊列表点击/键盘：委托一次绑定，避免 showInventory 每次重建 200 格 × 多监听器导致卡顿与泄漏感 */
+function ensureInventoryListDelegation() {
+    var list = document.getElementById("playerInventory");
+    if (!list || list._invListDelegBound) return;
+    list._invListDelegBound = true;
+    list.addEventListener("click", function (ev) {
+        if (typeof player === "undefined" || !player || !player.inventory) return;
+        var slot = ev.target.closest ? ev.target.closest(".inv-slot[data-inv-index]") : null;
+        if (!slot) return;
+        var i = parseInt(slot.getAttribute("data-inv-index"), 10);
+        if (isNaN(i) || i < 0) return;
+        if (ev.target.closest && ev.target.closest(".inv-slot__lock")) {
+            ev.stopPropagation();
+            toggleInventoryLockAtIndex(i);
+            return;
+        }
+        if (ev.target.closest && ev.target.closest(".inv-slot__gift")) {
+            ev.stopPropagation();
+            if (typeof window.dongtianMarketOpenGiftEquip === "function") {
+                window.dongtianMarketOpenGiftEquip(i);
+            }
+            return;
+        }
+        if (ev.target.closest && ev.target.closest(".inv-slot__market")) {
+            ev.stopPropagation();
+            if (typeof window.dongtianMarketOpenSellEquip === "function") {
+                window.dongtianMarketOpenSellEquip(i);
+            }
+            return;
+        }
+        var cur = parseInventoryEquipmentEntry(player.inventory.equipment[i]);
+        if (!cur) return;
+        showItemInfo(cur, equipmentIcon(cur.category), "Equip", i);
+    });
+    list.addEventListener("keydown", function (ev) {
+        if (ev.key !== "Enter" && ev.key !== " ") return;
+        var slot = ev.target.closest ? ev.target.closest(".inv-slot[data-inv-index]") : null;
+        if (!slot) return;
+        ev.preventDefault();
+        var i = parseInt(slot.getAttribute("data-inv-index"), 10);
+        if (isNaN(i) || i < 0 || typeof player === "undefined" || !player || !player.inventory) return;
+        var cur = parseInventoryEquipmentEntry(player.inventory.equipment[i]);
+        if (!cur) return;
+        showItemInfo(cur, equipmentIcon(cur.category), "Equip", i);
+    });
 }
 
 // Show inventory
 const showInventory = () => {
     if (!player.inventory) player.inventory = { equipment: [] };
     if (!Array.isArray(player.inventory.equipment)) player.inventory.equipment = [];
+    if (normalizeInventoryEquipmentSlots()) {
+        persistEquipmentDedupeIfNeeded(true);
+    }
     ensureInventoryUiFilters();
     clampInventoryEquipmentToMax();
 
@@ -3792,7 +5031,15 @@ const showInventory = () => {
         autoBatchCb.checked = !!player.inventory.autoBatchSell;
     }
     syncInventorySellRarityDom();
+    syncInventorySellLvlDom();
+    var vlm = document.getElementById("inv-view-lvl-min");
+    var vlx = document.getElementById("inv-view-lvl-max");
+    if (vlm && vlx) {
+        vlm.value = player.inventory.uiFilter.viewLvlMin === "" ? "" : String(player.inventory.uiFilter.viewLvlMin);
+        vlx.value = player.inventory.uiFilter.viewLvlMax === "" ? "" : String(player.inventory.uiFilter.viewLvlMax);
+    }
     let playerInventoryList = document.getElementById("playerInventory");
+    ensureInventoryListDelegation();
     playerInventoryList.innerHTML = "";
 
     if (player.inventory.equipment.length == 0) {
@@ -3802,8 +5049,13 @@ const showInventory = () => {
     }
 
     var visibleCount = 0;
+    var parseFailCount = 0;
     for (let i = 0; i < player.inventory.equipment.length; i++) {
-        const item = JSON.parse(player.inventory.equipment[i]);
+        const item = parseInventoryEquipmentEntry(player.inventory.equipment[i]);
+        if (!item || typeof item !== "object" || !item.rarity) {
+            parseFailCount++;
+            continue;
+        }
         if (!passesBagFilter(item)) continue;
         visibleCount++;
 
@@ -3816,10 +5068,14 @@ const showInventory = () => {
         var es = typeof item.enhanceStars === "number" ? Math.max(0, Math.min(10, item.enhanceStars)) : 0;
         var starBadge =
             es > 0
-                ? '<span class="inv-slot__stars" title="星阶">' +
+                ? '<span class="inv-slot__stars" title="' +
+                  (es >= 10 ? "星阶（10★不可上架或赠送）" : "星阶") +
+                  '">' +
                   es +
                   "★</span>"
                 : "";
+        var realmLine = sectHtmlEscape(formatEquipmentRealmWithDivine(item));
+        var realmHtml = '<span class="inv-slot__realm" title="境界">' + realmLine + "</span>";
         itemDiv.className =
             "items inv-slot inv-slot--" +
             item.rarity.toLowerCase() +
@@ -3827,6 +5083,7 @@ const showInventory = () => {
             (item.locked ? " inv-slot--locked" : "");
         itemDiv.setAttribute("role", "button");
         itemDiv.setAttribute("tabindex", "0");
+        itemDiv.setAttribute("data-inv-index", String(i));
         itemDiv.innerHTML =
             '<button type="button" class="inv-slot__lock" title="' +
             (item.locked ? "点击解锁" : "点击锁定") +
@@ -3842,7 +5099,9 @@ const showInventory = () => {
             item.rarity +
             '">' +
             equipmentRarityLabel(item.rarity) +
-            '</span><span class="inv-slot__name ' +
+            "</span>" +
+            realmHtml +
+            '<span class="inv-slot__name ' +
             mythicNameClass +
             " " +
             item.rarity +
@@ -3852,45 +5111,42 @@ const showInventory = () => {
             dispName +
             "</span></div>";
 
-        var lockBtn = itemDiv.querySelector(".inv-slot__lock");
-        lockBtn.addEventListener("click", function (ev) {
-            ev.stopPropagation();
-            toggleInventoryLockAtIndex(i);
-        });
-
-        const openEquip = function () {
-            var cur = JSON.parse(player.inventory.equipment[i]);
-            showItemInfo(cur, equipmentIcon(cur.category), "Equip", i);
-        };
-        itemDiv.addEventListener("click", openEquip);
-        itemDiv.addEventListener("keydown", function (ev) {
-            if (ev.key === "Enter" || ev.key === " ") {
-                ev.preventDefault();
-                openEquip();
-            }
-        });
-
-        if (typeof window.DONGTIAN_CLOUD_MODE !== "undefined" && window.DONGTIAN_CLOUD_MODE) {
+        if (typeof window.DONGTIAN_CLOUD_MODE !== "undefined" && window.DONGTIAN_CLOUD_MODE && canEquipmentMarketTrade(item)) {
+            var mkRow = document.createElement("span");
+            mkRow.className = "inv-slot__market-row";
             var mkBtn = document.createElement("button");
             mkBtn.type = "button";
             mkBtn.className = "inv-slot__market btn btn--sm btn--ghost";
             mkBtn.textContent = "上架";
             mkBtn.title = "上架至修仙市场（联网币）";
-            mkBtn.addEventListener("click", function (ev) {
-                ev.stopPropagation();
-                if (typeof window.dongtianMarketOpenSellEquip === "function") {
-                    window.dongtianMarketOpenSellEquip(i);
-                }
-            });
-            itemDiv.appendChild(mkBtn);
+            var giftBtn = document.createElement("button");
+            giftBtn.type = "button";
+            giftBtn.className = "inv-slot__gift btn btn--sm btn--ghost";
+            giftBtn.textContent = "赠送";
+            giftBtn.title = "赠送给其他修士（灵网身份，消耗 5 联网币）";
+            mkRow.appendChild(mkBtn);
+            mkRow.appendChild(giftBtn);
+            itemDiv.appendChild(mkRow);
         }
 
         playerInventoryList.appendChild(itemDiv);
     }
 
     if (visibleCount === 0) {
-        playerInventoryList.innerHTML =
-            '<div class="inv-empty inv-empty--filter" role="status"><i class="fas fa-filter inv-empty__icon" aria-hidden="true"></i><strong>当前筛选无物</strong><span>调整「检视品阶」或「检视种类」即可见遗器。</span></div>';
+        if (player.inventory.equipment.length > 0 && parseFailCount > 0) {
+            playerInventoryList.innerHTML =
+                '<div class="inv-empty inv-empty--filter" role="status"><i class="fas fa-exclamation-triangle inv-empty__icon" aria-hidden="true"></i><strong>遗器数据异常</strong><span>行囊中有 ' +
+                player.inventory.equipment.length +
+                " 件遗器但无法解析显示，请刷新页面；若仍异常请联系管理员。</span></div>";
+        } else if (player.inventory.equipment.length > 0) {
+            playerInventoryList.innerHTML =
+                '<div class="inv-empty inv-empty--filter" role="status"><i class="fas fa-filter inv-empty__icon" aria-hidden="true"></i><strong>当前筛选无物</strong><span>调整「检视品阶」「检视种类」或「检视等级」即可见遗器（共 ' +
+                player.inventory.equipment.length +
+                " 件）。</span></div>";
+        } else {
+            playerInventoryList.innerHTML =
+                '<div class="inv-empty inv-empty--filter" role="status"><i class="fas fa-filter inv-empty__icon" aria-hidden="true"></i><strong>当前筛选无物</strong><span>调整「检视品阶」「检视种类」或「检视等级」即可见遗器。</span></div>';
+        }
     }
 }
 
@@ -3899,6 +5155,9 @@ const showEquipment = () => {
     let playerEquipmentList = document.getElementById("playerEquipment");
     playerEquipmentList.innerHTML = "";
     normalizePlayerEquippedSlots();
+    if (reconcileEquippedInventoryDuplicates()) {
+        persistEquipmentDedupeIfNeeded(true);
+    }
 
     EQUIP_SLOT_TYPE_ORDER.forEach(function (slotType) {
         let wrap = document.createElement("div");
@@ -3918,19 +5177,26 @@ const showEquipment = () => {
             const item = player.equipped[idx];
             let icon = equipmentIcon(item.category);
             var disp = weaponOrArmorDisplayName(item);
+            var realmEq = formatEquipmentRealmWithDivine(item);
             var esEq = typeof item.enhanceStars === "number" ? Math.max(0, Math.min(10, item.enhanceStars)) : 0;
             var starEq = esEq > 0 ? '<span class="inv-equip-btn__stars">' + esEq + "★</span>" : "";
             wrap.innerHTML =
+                '<div class="inv-equip-slot__wrap">' +
                 '<button type="button" class="inv-equip-btn ' +
                 item.rarity +
                 '" aria-label="已装备' +
                 lbl +
                 "：" +
                 disp +
+                "，" +
+                realmEq +
                 '，点击褪下">' +
                 starEq +
                 icon +
-                "</button>";
+                "</button>" +
+                '<span class="inv-equip-slot__realm" title="境界">' +
+                sectHtmlEscape(realmEq) +
+                "</span></div>";
             wrap.querySelector("button").addEventListener("click", function () {
                 var j = findEquippedIndexByType(slotType);
                 if (j >= 0) {
@@ -3967,6 +5233,9 @@ const applyEquipmentStats = () => {
         if (!item || !Array.isArray(item.stats)) continue;
 
         var dMul = typeof getDivineExtractStatMul === "function" ? getDivineExtractStatMul(item) : 1;
+        if (typeof window.getDongtianForgeStatMulForItem === "function") {
+            dMul *= window.getDongtianForgeStatMulForItem(item);
+        }
 
         // Iterate through the stats array and update the player stats
         item.stats.forEach(stat => {
@@ -4007,19 +5276,22 @@ const unequipAll = () => {
         tryPushInventoryEquipment(JSON.stringify(item));
     }
     playerLoadStats();
-    saveData();
+    saveData({ forceCloud: true, playerMutation: true });
 }
 
 const sellAll = (rarity) => {
+    ensureInventoryUiFilters();
+    var sellLvlB = getInventorySellLvlParsedBounds();
     if (rarity == "All") {
         if (player.inventory.equipment.length === 0) return;
         var canSellAnyAll = false;
         for (var ai = 0; ai < player.inventory.equipment.length; ai++) {
             try {
-                if (!JSON.parse(player.inventory.equipment[ai]).locked) {
-                    canSellAnyAll = true;
-                    break;
-                }
+                var eqa = JSON.parse(player.inventory.equipment[ai]);
+                if (eqa.locked) continue;
+                if (!passesInvEquipmentLvlRange(getEquipmentWearLvlForFilter(eqa), sellLvlB.min, sellLvlB.max)) continue;
+                canSellAnyAll = true;
+                break;
             } catch (e) {
                 canSellAnyAll = true;
                 break;
@@ -4029,32 +5301,38 @@ const sellAll = (rarity) => {
         for (let i = 0; i < player.inventory.equipment.length; i++) {
             const equipment = JSON.parse(player.inventory.equipment[i]);
             if (equipment.locked) continue;
+            if (!passesInvEquipmentLvlRange(getEquipmentWearLvlForFilter(equipment), sellLvlB.min, sellLvlB.max)) continue;
             player.gold += typeof applyGoldGainMult === "function" ? applyGoldGainMult(equipment.value) : equipment.value;
             player.inventory.equipment.splice(i, 1);
             i--;
         }
         playerLoadStats();
-        saveData();
+        if (typeof savePlayerInventoryMutation === "function") savePlayerInventoryMutation(6000);
+        else saveData({ forceCloud: true, playerMutation: true });
+        if (typeof showInventory === "function") showInventory();
     } else {
         var selectedTierIdx = getEquipmentRarityTierIndex(rarity);
         let rarityCheck = false;
         for (let i = 0; i < player.inventory.equipment.length; i++) {
             const equipment = JSON.parse(player.inventory.equipment[i]);
-            if (!equipment.locked && getEquipmentRarityTierIndex(equipment.rarity) <= selectedTierIdx) {
-                rarityCheck = true;
-                break;
-            }
+            if (equipment.locked || getEquipmentRarityTierIndex(equipment.rarity) > selectedTierIdx) continue;
+            if (!passesInvEquipmentLvlRange(getEquipmentWearLvlForFilter(equipment), sellLvlB.min, sellLvlB.max)) continue;
+            rarityCheck = true;
+            break;
         }
         if (rarityCheck) {
             for (let i = 0; i < player.inventory.equipment.length; i++) {
                 const equipment = JSON.parse(player.inventory.equipment[i]);
                 if (equipment.locked || getEquipmentRarityTierIndex(equipment.rarity) > selectedTierIdx) continue;
+                if (!passesInvEquipmentLvlRange(getEquipmentWearLvlForFilter(equipment), sellLvlB.min, sellLvlB.max)) continue;
                 player.gold += typeof applyGoldGainMult === "function" ? applyGoldGainMult(equipment.value) : equipment.value;
                 player.inventory.equipment.splice(i, 1);
                 i--;
             }
             playerLoadStats();
-            saveData();
+            if (typeof savePlayerInventoryMutation === "function") savePlayerInventoryMutation(6000);
+            else saveData({ forceCloud: true, playerMutation: true });
+            if (typeof showInventory === "function") showInventory();
         }
     }
 }
@@ -4119,7 +5397,7 @@ const createEquipmentPrint = (condition) => {
         if (typeof player === "undefined" || player === null) return;
         ensureInventoryUiFilters();
         player.inventory.autoBatchSell = cb.checked;
-        if (typeof saveData === "function") saveData();
+        saveInventoryUiPreference();
     });
 })();
 
@@ -4132,27 +5410,65 @@ const createEquipmentPrint = (condition) => {
         ensureInventoryUiFilters();
         player.inventory.autoBatchSellRarity = sel.value;
         sel.className = "select-field select-field--inv " + (sel.value === "All" ? "Common" : sel.value);
-        if (typeof saveData === "function") saveData();
+        saveInventoryUiPreference();
     });
+})();
+
+(function initInventorySellLvlPersist() {
+    var mn = document.getElementById("inv-sell-lvl-min");
+    var mx = document.getElementById("inv-sell-lvl-max");
+    if (!mn || !mx || mn._invSellLvlBound) return;
+    mn._invSellLvlBound = true;
+    function persistSellLvl() {
+        if (typeof player === "undefined" || player === null) return;
+        ensureInventoryUiFilters();
+        player.inventory.autoBatchSellLvlMin = mn.value.trim() === "" ? "" : mn.value.trim();
+        player.inventory.autoBatchSellLvlMax = mx.value.trim() === "" ? "" : mx.value.trim();
+        saveInventoryUiPreference();
+    }
+    mn.addEventListener("change", persistSellLvl);
+    mx.addEventListener("change", persistSellLvl);
+    mn.addEventListener("input", persistSellLvl);
+    mx.addEventListener("input", persistSellLvl);
 })();
 
 (function initInventoryBagFilters() {
     var vr = document.getElementById("inv-view-rarity");
     var vt = document.getElementById("inv-view-type");
+    var vlm = document.getElementById("inv-view-lvl-min");
+    var vlx = document.getElementById("inv-view-lvl-max");
     if (!vr || !vt || vr._invFilterBound) return;
     vr._invFilterBound = true;
     vt._invFilterBound = true;
-    function applyBagFilter() {
+    var __invFilterRenderTimer = null;
+    function applyBagFilterNow() {
         if (typeof player === "undefined" || player === null) return;
         ensureInventoryUiFilters();
         player.inventory.uiFilter.rarity = vr.value;
         player.inventory.uiFilter.slotType = vt.value;
+        if (vlm && vlx) {
+            player.inventory.uiFilter.viewLvlMin = vlm.value.trim() === "" ? "" : vlm.value.trim();
+            player.inventory.uiFilter.viewLvlMax = vlx.value.trim() === "" ? "" : vlx.value.trim();
+        }
         vr.className = "select-field select-field--inv " + (vr.value === "All" ? "Common" : vr.value);
-        if (typeof saveData === "function") saveData();
+        saveInventoryUiPreference();
         if (typeof showInventory === "function") showInventory();
     }
-    vr.addEventListener("change", applyBagFilter);
-    vt.addEventListener("change", applyBagFilter);
+    function applyBagFilterDebounced() {
+        if (__invFilterRenderTimer) clearTimeout(__invFilterRenderTimer);
+        __invFilterRenderTimer = setTimeout(function () {
+            __invFilterRenderTimer = null;
+            applyBagFilterNow();
+        }, 150);
+    }
+    vr.addEventListener("change", applyBagFilterNow);
+    vt.addEventListener("change", applyBagFilterNow);
+    if (vlm && vlx) {
+        vlm.addEventListener("change", applyBagFilterNow);
+        vlx.addEventListener("change", applyBagFilterNow);
+        vlm.addEventListener("input", applyBagFilterDebounced);
+        vlx.addEventListener("input", applyBagFilterDebounced);
+    }
 })();
 
 (function initInventoryTabs() {
@@ -4166,13 +5482,29 @@ const createEquipmentPrint = (condition) => {
             if (t !== "equip" && t !== "mat" && t !== "gem") return;
             ensureInventoryUiFilters();
             player.inventory.bagTab = t;
-            if (typeof saveData === "function") saveData();
+            if (t === "mat" && typeof saveData === "function") {
+                saveData({ forceCloud: true, playerMutation: true });
+            } else {
+                saveInventoryUiPreference();
+            }
             if (typeof showInventory === "function") showInventory();
         });
     });
 })();
 
 if (typeof window !== "undefined") {
+    /** 批量典让确认弹窗：有等级范围时追加说明（点击时 equipment.js 已执行，openInventory 内可安全调用） */
+    window.getInventorySellLvlModalHintHtml = function () {
+        if (typeof player === "undefined" || !player || !player.inventory) return "";
+        ensureInventoryUiFilters();
+        var b = getInventorySellLvlParsedBounds();
+        if (b.min == null && b.max == null) return "";
+        if (b.min != null && b.max != null) {
+            return "<p>仅典让修为等级介于 " + b.min + " 与 " + b.max + " 之间者。</p>";
+        }
+        if (b.min != null) return "<p>仅典让修为等级不低于 " + b.min + " 者。</p>";
+        return "<p>仅典让修为等级不高于 " + b.max + " 者。</p>";
+    };
     window.computeEquipmentDungeonIndependentCaps = computeEquipmentDungeonIndependentCaps;
     window.getEquipmentNormalDiceEvenSpread7Reference = getEquipmentNormalDiceEvenSpread7Reference;
     window.getEquipmentNormalDiceEvenSpread7AllRarities = getEquipmentNormalDiceEvenSpread7AllRarities;

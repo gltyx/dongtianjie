@@ -34,6 +34,12 @@ let dungeon = {
         warmEaseFloor: 0,
         /** 本层已触发过的温馨奇遇 id（每条每层的仅一次） */
         warmEaseUsed: {},
+        /** 洞天石门「置之不理」后待完成的连战场数（>0 时主事件池暂停，打完再显石门） */
+        nextRoomIgnoreCombatRemaining: 0,
+        /** 本段「置之不理」连战是否已掷出遗器掉落（用于最后一场保底） */
+        nextRoomIgnoreCombatLootDropped: false,
+        /** 累计「置之不理」连战次数；并入联网掷骰种子，避免同层同劫每轮 1–5 场掉落完全一致 */
+        nextRoomIgnoreCombatSession: 0,
     },
     status: {
         exploring: false,
@@ -77,6 +83,10 @@ function applyDungeonEnemyScalingGain(delta) {
 
 /** 「降低敌势」类事件：对基础减量乘此倍率（4 = 基础减量的 4 倍） */
 var DUNGEON_ENEMY_SCALING_LOSS_MULT = 4;
+/** 洞天石门「置之不理」：留在当前劫数内须连战的场数（每场须点拔刃/遁逃） */
+var NEXTROOM_IGNORE_COMBAT_ROUNDS = 5;
+/** 石门连战单场遗器掉落率（低于普通小怪 20%，末场仍保底至少 1 件） */
+var NEXTROOM_IGNORE_EQUIP_DROP_CHANCE = 0.1;
 
 function applyDungeonEnemyScalingLoss(delta) {
     var d = typeof delta === "number" && isFinite(delta) ? delta : 0;
@@ -166,7 +176,18 @@ function dongtianEventSeeded01(salt) {
     var da = dungeon && typeof dungeon.action === "number" && !isNaN(dungeon.action) ? dungeon.action : 0;
     var f = dungeon && dungeon.progress && typeof dungeon.progress.floor === "number" ? dungeon.progress.floor : 1;
     var r = dungeon && dungeon.progress && typeof dungeon.progress.room === "number" ? dungeon.progress.room : 1;
-    var key = f + "|" + r + "|" + da + "|" + String(salt || "x");
+    var nrSeq = 0;
+    try {
+        if (typeof getNextRoomIgnoreCombatRollSeq === "function") nrSeq = getNextRoomIgnoreCombatRollSeq();
+    } catch (eNrSeq) {}
+    var nriSession = 0;
+    if (nrSeq > 0 && dungeon && dungeon.settings) {
+        nriSession = Math.max(0, Math.floor(Number(dungeon.settings.nextRoomIgnoreCombatSession) || 0));
+    }
+    var key =
+        nrSeq > 0
+            ? f + "|" + r + "|" + da + "|nri" + nrSeq + "|s" + nriSession + "|" + String(salt || "x")
+            : f + "|" + r + "|" + da + "|" + String(salt || "x");
     return dongtianMulberry32(dongtianHashSeed(key))();
 }
 
@@ -188,6 +209,45 @@ var WARM_EASE_EVENT_IDS = [
 ];
 /** 温馨奇遇：action≤5 时额外追加的「整组 13 条」遍数（只加温馨槽；0 表示不额外加倍，略降降敌势触发率） */
 var WARM_EASE_POOL_EXTRA_FULL_SETS = 0;
+
+/** 秘境主事件掷骰基准池（遇敌+各类奇遇权重）；启动时构建一次，每秒 tick 用 slice 拷贝再追加以减轻 GC */
+var DUNGEON_EVENT_TYPES_BASE = new Array(25).fill("enemy").concat([
+    "nothing", "nothing", "nothing", "nothing", "nothing", "nothing", "nothing", "nothing", "nothing", "nothing",
+    "treasure", "treasure",
+    "blessing", "curse", "curse", "curse", "curse", "monarch",
+    "echoMirror", "wellspring", "whisperPact", "riftPedlar", "fateLedger", "factionOath", "doomChain", "abyssChain", "skyChain",
+    "lingquan", "daoTablet", "insight", "remnantPill",
+    "oddBeastDen", "oddBrokenAnvil",
+    "rageChain",
+    "heartDemon", "sectSpirit", "tianJiQian", "beastBond", "wanderStall",
+    "starCompass",
+    "sillyDrunkDice", "sillyBeastRace", "sillyFrog", "sillyFakeSage", "sillyGourd", "sillyVending",
+    "funShadowShell", "funPuppetFork", "funTideBet", "funCometWish", "funTeaPhantom", "funRiddleStone",
+    "funReverseLake", "funDebtCrow", "funLuckCat", "funMeridianDice", "funGhostMerchant", "funTwilightBridge",
+    "heavenWrath", "heavenWrath",
+    "bloodOathStele", "bloodOathStele",
+    "calamityRift", "calamityRift",
+    "perilVoidMaw", "perilVoidMaw",
+    "perilKarmicLedger", "perilKarmicLedger",
+    "perilSoulPyre", "perilSoulPyre",
+    "perilIronLotus", "perilIronLotus",
+    "perilAbyssWhisper", "perilAbyssWhisper",
+    "treasureAmbush",
+    "bondSoulChain", "bondSoulChain", "bondSoulChain",
+    "warmEaseLantern",
+    "warmEaseDewPool",
+    "warmEaseFallingLeaf",
+    "warmEaseHearthEcho",
+    "warmEaseFinchRest",
+    "warmEaseWallFlower",
+    "warmEaseScentTrace",
+    "warmEaseOldTune",
+    "warmEaseRainLetter",
+    "warmEaseTurnBack",
+    "warmEaseSilentPromise",
+    "warmEaseChildEcho",
+    "warmEaseFrostHand",
+]);
 
 function isWarmEaseEventId(id) {
     return typeof id === "string" && WARM_EASE_EVENT_IDS.indexOf(id) !== -1;
@@ -280,7 +340,12 @@ function rollDungeonExpFloorRewardAmount() {
 /** 宝藏伏击战：记录待发放奖励（战斗胜利后发） */
 let dungeonTreasureAmbushPending = null;
 /** 宝藏伏击：强化石 / 开孔器 / 附魔石 各自掷骰，不再必掉（与秘境镇守等无关） */
-const TREASURE_AMBUSH_MATERIAL_DROP_RATE = 0.2;
+const TREASURE_AMBUSH_MATERIAL_DROP_RATE = 0.05;
+/** 高危/奇遇：强化石、附魔石独立掷骰；victoryBonus 里仅表示「是否参与掉落」，概率统一用此常量 */
+const DANGER_ENHANCE_STONE_DROP_CHANCE = 0.05;
+const DANGER_ENCHANT_STONE_DROP_CHANCE = 0.05;
+/** 高危/奇遇 victoryBonus 中天赋果发放前的掷骰概率 */
+const DANGER_TALENT_FRUIT_DROP_CHANCE = 0.05;
 /** 联网「路遇道友」在事件池中的条数（与总池均匀随机，条数越少概率越低）。原为 7/6/6，二层再各 +2。 */
 var DUNGEON_CLOUD_MEET_POOL_KIND = 2;
 var DUNGEON_CLOUD_MEET_POOL_RIVAL = 2;
@@ -394,6 +459,7 @@ const ESCORT_ROOM_OPEN_BLOCK_AT = 17;
 
 /** 灵脉采矿：五档矿兽、次数与押镖分立 */
 let miningActivity = null;
+let miningStartLocked = false;
 const MINING_TICKET_MAX = 5;
 const MINING_TICKET_RECHARGE_MS = 60 * 60 * 1000;
 const MINING_OPEN_DELAY_ROOMS = 1;
@@ -1064,28 +1130,47 @@ function ensureMiningButton() {
     miningActivity = btn;
 }
 
-function syncRunBarModeText() {
-    // 自愈：若存档/异常导致 choosing 标记残留，但 DOM 中已没有对应选择面板按钮，
-    // 会让按钮长期 disabled= true，用户表现为“无法点击”。
-    if (mining && mining.status && mining.status.choosing) {
-        var hasMiningChooser = !!document.querySelector("#mtCancel");
-        if (!hasMiningChooser && !mining.status.event) {
-            mining.status.choosing = false;
-            mining.status.exploring = false;
-            mining.status.paused = true;
-            if (dungeon && dungeon.status) dungeon.status.event = false;
-        }
+/** 押镖/地脉「择路」未开跑时，choosing 会禁用「深入秘境」；面板丢失后须清标记（择路态 event 恒为 true，勿用 !event 作为自愈条件） */
+var __runModeChooserOpenedAt = 0;
+var RUN_MODE_CHOOSER_HEAL_GRACE_MS = 2800;
+function markRunModeChooserOpened() {
+    __runModeChooserOpenedAt = Date.now();
+}
+function healOrphanedRunModeChooserFlags() {
+    if (
+        __runModeChooserOpenedAt > 0 &&
+        Date.now() - __runModeChooserOpenedAt < RUN_MODE_CHOOSER_HEAL_GRACE_MS
+    ) {
+        return false;
     }
-    if (escort && escort.status && escort.status.choosing) {
+    var healed = false;
+    if (typeof escort !== "undefined" && escort && escort.status && !escort.active && escort.status.choosing) {
         var hasEscortChooser = !!document.querySelector("#es5");
-        /** 勿在「择路」态仅因 #es5 暂缺就清 choosing：刷新镖令会先无 choices 重绘日志，面板由 preserve 或紧随的 openEscortRiskChooser 恢复，误判会导致按钮永久消失。 */
-        if (!hasEscortChooser && !escort.status.event) {
+        if (!hasEscortChooser) {
             escort.status.choosing = false;
+            escort.status.event = false;
             escort.status.exploring = false;
             escort.status.paused = true;
             if (dungeon && dungeon.status) dungeon.status.event = false;
+            healed = true;
         }
     }
+    if (typeof mining !== "undefined" && mining && mining.status && !mining.active && mining.status.choosing) {
+        var hasMiningChooser = !!document.querySelector("#mtCancel");
+        if (!hasMiningChooser) {
+            mining.status.choosing = false;
+            mining.status.event = false;
+            mining.status.exploring = false;
+            mining.status.paused = true;
+            if (dungeon && dungeon.status) dungeon.status.event = false;
+            healed = true;
+        }
+    }
+    return healed;
+}
+
+function syncRunBarModeText() {
+    healOrphanedRunModeChooserFlags();
 
     var isEscortChoosing = !!(escort.status && escort.status.choosing);
     var isMiningChoosing = !!(mining.status && mining.status.choosing);
@@ -1156,6 +1241,9 @@ function syncRunBarModeText() {
         }
     }
     renderDungeonChainTitleHint();
+    try {
+        if (typeof window.dongtianSyncHubFeaturesJieLock === "function") window.dongtianSyncHubFeaturesJieLock();
+    } catch (eHubJie) {}
 }
 
 function renderDungeonChainTitleHint() {
@@ -1194,6 +1282,10 @@ function mergeDungeonDefaults(loaded) {
             warmEaseUsed: {},
             expFloorRewardTrackFloor: 0,
             expFloorRewardConsumed: false,
+            /** 与 progress.floor 同步：本层奇遇写入机缘%的累计量，换层清零 */
+            eventOppBonusTrackFloor: 1,
+            eventOppBonusAppliedThisFloor: { hp: 0, atk: 0, def: 0, atkSpd: 0, vamp: 0, critRate: 0, critDmg: 0 },
+            nextRoomIgnoreCombatRemaining: 0,
         },
         status: { exploring: false, paused: true, event: false },
         statistics: { kills: 0, runtime: 0 },
@@ -1278,6 +1370,17 @@ function mergeDungeonDefaults(loaded) {
         if (out.settings.warmEaseUsed[_wuk] === true) _wuClean[_wuk] = true;
     }
     out.settings.warmEaseUsed = _wuClean;
+    if (typeof out.settings.nextRoomIgnoreCombatRemaining !== "number" || isNaN(out.settings.nextRoomIgnoreCombatRemaining)) {
+        out.settings.nextRoomIgnoreCombatRemaining = 0;
+    }
+    out.settings.nextRoomIgnoreCombatRemaining = Math.max(0, Math.floor(out.settings.nextRoomIgnoreCombatRemaining));
+    if (typeof out.settings.nextRoomIgnoreCombatLootDropped !== "boolean") {
+        out.settings.nextRoomIgnoreCombatLootDropped = false;
+    }
+    if (typeof out.settings.nextRoomIgnoreCombatSession !== "number" || isNaN(out.settings.nextRoomIgnoreCombatSession)) {
+        out.settings.nextRoomIgnoreCombatSession = 0;
+    }
+    out.settings.nextRoomIgnoreCombatSession = Math.max(0, Math.floor(out.settings.nextRoomIgnoreCombatSession));
     if (typeof out.settings.expFloorRewardTrackFloor !== "number" || isNaN(out.settings.expFloorRewardTrackFloor)) {
         out.settings.expFloorRewardTrackFloor = 0;
     }
@@ -1371,7 +1474,152 @@ function mergeDungeonDefaults(loaded) {
     if (typeof loaded.enemyMultipliers === "object" && loaded.enemyMultipliers !== null) {
         out.enemyMultipliers = loaded.enemyMultipliers;
     }
+    /** 奇遇机缘：本层每项上限，与当前秘境层绑定 */
+    var _oppFloor = Math.max(1, Math.floor(Number(out.progress.floor) || 1));
+    if (typeof out.settings.eventOppBonusTrackFloor !== "number" || isNaN(out.settings.eventOppBonusTrackFloor)) {
+        out.settings.eventOppBonusTrackFloor = _oppFloor;
+    } else {
+        out.settings.eventOppBonusTrackFloor = Math.max(1, Math.floor(out.settings.eventOppBonusTrackFloor));
+    }
+    if (!out.settings.eventOppBonusAppliedThisFloor || typeof out.settings.eventOppBonusAppliedThisFloor !== "object") {
+        out.settings.eventOppBonusAppliedThisFloor = { hp: 0, atk: 0, def: 0, atkSpd: 0, vamp: 0, critRate: 0, critDmg: 0 };
+    } else {
+        var _oppKeys = ["hp", "atk", "def", "atkSpd", "vamp", "critRate", "critDmg"];
+        var _oppClean = { hp: 0, atk: 0, def: 0, atkSpd: 0, vamp: 0, critRate: 0, critDmg: 0 };
+        for (var _oi = 0; _oi < _oppKeys.length; _oi++) {
+            var _ok = _oppKeys[_oi];
+            var _ov = out.settings.eventOppBonusAppliedThisFloor[_ok];
+            _oppClean[_ok] = typeof _ov === "number" && isFinite(_ov) ? Math.max(0, _ov) : 0;
+        }
+        out.settings.eventOppBonusAppliedThisFloor = _oppClean;
+    }
+    if (out.settings.eventOppBonusTrackFloor !== _oppFloor) {
+        out.settings.eventOppBonusTrackFloor = _oppFloor;
+        out.settings.eventOppBonusAppliedThisFloor = { hp: 0, atk: 0, def: 0, atkSpd: 0, vamp: 0, critRate: 0, critDmg: 0 };
+    }
     return out;
+}
+
+/** 奇遇写入 player.bonusStats 的机缘%：本层气血/力道/护体各至多 +50%，身法/吸血/会心/暴伤各至多 +10%；换层重置。 */
+var DUNGEON_EVENT_OPP_BONUS_KEYS = ["hp", "atk", "def", "atkSpd", "vamp", "critRate", "critDmg"];
+var DUNGEON_EVENT_OPP_CAP_MAIN = 50;
+var DUNGEON_EVENT_OPP_CAP_OTHER = 10;
+var DUNGEON_EVENT_OPP_STAT_ZH = { hp: "气血", atk: "力道", def: "护体", atkSpd: "身法", vamp: "吸血", critRate: "会心", critDmg: "暴伤" };
+
+function dungeonEventOpportunityBonusCapForKey(statKey) {
+    var k = String(statKey);
+    if (k === "hp" || k === "atk" || k === "def") return DUNGEON_EVENT_OPP_CAP_MAIN;
+    return DUNGEON_EVENT_OPP_CAP_OTHER;
+}
+
+function ensureDungeonEventOpportunityBonusCapState() {
+    if (typeof dungeon === "undefined" || !dungeon || !dungeon.settings || !dungeon.progress) return;
+    var f = Math.max(1, Math.floor(Number(dungeon.progress.floor) || 1));
+    var tr = dungeon.settings.eventOppBonusTrackFloor;
+    if (typeof tr !== "number" || isNaN(tr) || tr !== f) {
+        dungeon.settings.eventOppBonusTrackFloor = f;
+        dungeon.settings.eventOppBonusAppliedThisFloor = { hp: 0, atk: 0, def: 0, atkSpd: 0, vamp: 0, critRate: 0, critDmg: 0 };
+        return;
+    }
+    if (!dungeon.settings.eventOppBonusAppliedThisFloor || typeof dungeon.settings.eventOppBonusAppliedThisFloor !== "object") {
+        dungeon.settings.eventOppBonusAppliedThisFloor = { hp: 0, atk: 0, def: 0, atkSpd: 0, vamp: 0, critRate: 0, critDmg: 0 };
+        return;
+    }
+    for (var i = 0; i < DUNGEON_EVENT_OPP_BONUS_KEYS.length; i++) {
+        var bk = DUNGEON_EVENT_OPP_BONUS_KEYS[i];
+        var u = dungeon.settings.eventOppBonusAppliedThisFloor[bk];
+        dungeon.settings.eventOppBonusAppliedThisFloor[bk] = typeof u === "number" && isFinite(u) ? Math.max(0, u) : 0;
+    }
+}
+
+/** @returns {number} 实际加上的机缘百分点（正数）；delta 为负时不计本层上限、原样扣减 */
+function applyDungeonEventOpportunityBonusStat(statKey, delta) {
+    if (typeof player === "undefined" || !player || !player.bonusStats) return 0;
+    var k = String(statKey);
+    if (DUNGEON_EVENT_OPP_BONUS_KEYS.indexOf(k) < 0) return 0;
+    var d = Number(delta);
+    if (!isFinite(d) || d === 0) return 0;
+    if (d < 0) {
+        player.bonusStats[k] += d;
+        return d;
+    }
+    ensureDungeonEventOpportunityBonusCapState();
+    if (!dungeon || !dungeon.settings || !dungeon.settings.eventOppBonusAppliedThisFloor) {
+        player.bonusStats[k] += d;
+        return d;
+    }
+    var cap = dungeonEventOpportunityBonusCapForKey(k);
+    var used = dungeon.settings.eventOppBonusAppliedThisFloor[k] || 0;
+    var headroom = Math.max(0, cap - used);
+    var applyAmt = Math.min(d, headroom);
+    if (applyAmt > 0) {
+        player.bonusStats[k] += applyAmt;
+        dungeon.settings.eventOppBonusAppliedThisFloor[k] = used + applyAmt;
+    }
+    if (applyAmt + 1e-9 < d && typeof addDungeonLog === "function") {
+        var zh = DUNGEON_EVENT_OPP_STAT_ZH[k] || k;
+        if (applyAmt <= 1e-9) {
+            addDungeonLog(
+                `<span class="Rare">本层秘境奇遇机缘已达天机上限，「${zh}」无法再永久增加（本次期望 +${d.toFixed(2)}%）。</span>`
+            );
+        } else {
+            addDungeonLog(
+                `<span class="Rare">本层秘境「${zh}」奇遇机缘将触顶，仅永久增加 <b>${applyAmt.toFixed(2)}%</b>（余 ${(d - applyAmt).toFixed(2)}% 未记入机缘）。</span>`
+            );
+        }
+    }
+    return applyAmt;
+}
+
+/**
+ * 读档迁移：将 player.bonusStats 中「秘境奇遇」永久机缘压至「可达层数 × 每层上限」。
+ * bonusStats 仅含：每级自动机缘、余烬抉择、秘境奇遇（见 player.js / applyDungeonEventOpportunityBonusStat）。
+ * @returns {boolean} 是否改过 bonusStats 或本层 eventOppBonusAppliedThisFloor
+ */
+function repairPlayerDungeonEventOpportunityBonusToCaps() {
+    if (typeof player === "undefined" || !player || !player.bonusStats) return false;
+    if (typeof ensurePlayerLvlupAutoBonusApplied === "function") ensurePlayerLvlupAutoBonusApplied();
+    if (typeof ensurePlayerLvlupChoiceBonusApplied === "function") ensurePlayerLvlupChoiceBonusApplied();
+    var floors = 1;
+    if (typeof player.maxDungeonFloor === "number" && isFinite(player.maxDungeonFloor) && player.maxDungeonFloor >= 1) {
+        floors = Math.max(floors, Math.floor(player.maxDungeonFloor));
+    }
+    if (typeof dungeon !== "undefined" && dungeon && dungeon.progress && typeof dungeon.progress.floor === "number") {
+        floors = Math.max(floors, Math.floor(dungeon.progress.floor));
+    }
+    var changed = false;
+    for (var i = 0; i < DUNGEON_EVENT_OPP_BONUS_KEYS.length; i++) {
+        var k = DUNGEON_EVENT_OPP_BONUS_KEYS[i];
+        var capPerFloor = dungeonEventOpportunityBonusCapForKey(k);
+        var maxDungeon = floors * capPerFloor;
+        var auto = 0;
+        var choice = 0;
+        if (player.lvlupAutoBonusApplied && typeof player.lvlupAutoBonusApplied[k] === "number" && isFinite(player.lvlupAutoBonusApplied[k])) {
+            auto = Math.max(0, player.lvlupAutoBonusApplied[k]);
+        }
+        if (player.lvlupChoiceBonusApplied && typeof player.lvlupChoiceBonusApplied[k] === "number" && isFinite(player.lvlupChoiceBonusApplied[k])) {
+            choice = Math.max(0, player.lvlupChoiceBonusApplied[k]);
+        }
+        var total = typeof player.bonusStats[k] === "number" && isFinite(player.bonusStats[k]) ? player.bonusStats[k] : 0;
+        var dungeonPart = Math.max(0, total - auto - choice);
+        if (dungeonPart > maxDungeon + 1e-9) {
+            player.bonusStats[k] = auto + choice + maxDungeon;
+            changed = true;
+        }
+    }
+    if (typeof dungeon !== "undefined" && dungeon && dungeon.settings && dungeon.settings.eventOppBonusAppliedThisFloor) {
+        ensureDungeonEventOpportunityBonusCapState();
+        for (var j = 0; j < DUNGEON_EVENT_OPP_BONUS_KEYS.length; j++) {
+            var bk = DUNGEON_EVENT_OPP_BONUS_KEYS[j];
+            var capF = dungeonEventOpportunityBonusCapForKey(bk);
+            var usedF = dungeon.settings.eventOppBonusAppliedThisFloor[bk] || 0;
+            if (usedF > capF + 1e-9) {
+                dungeon.settings.eventOppBonusAppliedThisFloor[bk] = capF;
+                changed = true;
+            }
+        }
+    }
+    return changed;
 }
 
 /**
@@ -1379,7 +1627,7 @@ function mergeDungeonDefaults(loaded) {
  * 否则内存里仍是脚本顶部的默认对象（劫数 1、历时 0），迁移/改名等处的 saveData 会覆盖真实 dungeonData。
  */
 function loadDungeonStateFromStorage() {
-    if (window.DONGTIAN_CLOUD_MODE && window.__dongtianCloudHydrated && !window.__dongtianCloudLocalFallback) return;
+    if (window.DONGTIAN_CLOUD_MODE && window.__dongtianCloudHydrated) return;
     var raw = localStorage.getItem("dungeonData");
     if (raw === null) return;
     try {
@@ -1391,7 +1639,7 @@ function loadDungeonStateFromStorage() {
 
 // Sets up the initial dungeon
 const initialDungeonLoad = () => {
-    if (window.DONGTIAN_CLOUD_MODE && window.__dongtianCloudHydrated && !window.__dongtianCloudLocalFallback) {
+    if (window.DONGTIAN_CLOUD_MODE && window.__dongtianCloudHydrated) {
         if (!dungeon || typeof dungeon !== "object") {
             dungeon = mergeDungeonDefaults(null);
         } else {
@@ -1451,6 +1699,19 @@ const initialDungeonLoad = () => {
         mining.status.paused = false;
         mining.pendingBattle = null;
         mining.awaitingCombatOutcome = false;
+    }
+    /** 刷新/云读档后择路面板 DOM 已丢，但 escortState 仍带 choosing：会永久禁用「深入秘境」 */
+    if (!es.active && es.status && (es.status.choosing || es.status.event)) {
+        es.status.choosing = false;
+        es.status.event = false;
+        es.status.exploring = false;
+        es.status.paused = true;
+    }
+    if (!ms.active && ms.status && (ms.status.choosing || ms.status.event)) {
+        ms.status.choosing = false;
+        ms.status.event = false;
+        ms.status.exploring = false;
+        ms.status.paused = true;
     }
     var miningWasActiveOnLoad = !!(mining && mining.active);
     /** 联网洞天：上次停在「待抉择机缘」时 action 已在掷骰处 +1，若直接重置 event 会导致下次重掷或跳格；先回拨一格再落锚。
@@ -1546,7 +1807,22 @@ function applyDungeonStartPauseToggle() {
 }
 
 const dungeonStartPause = () => {
+    if (typeof healOrphanedRunModeChooserFlags === "function") healOrphanedRunModeChooserFlags();
+    if (typeof tryHealDungeonEventDeadlock === "function") tryHealDungeonEventDeadlock();
     if (escort.active || (typeof mining !== "undefined" && mining && mining.active)) {
+        syncRunBarModeText();
+        return;
+    }
+    if (
+        pendingDungeonStartPauseToggle &&
+        dungeon.status &&
+        !dungeon.status.event &&
+        !escort.active &&
+        !(typeof mining !== "undefined" && mining && mining.active)
+    ) {
+        pendingDungeonStartPauseToggle = false;
+        if (dungeonActivity) dungeonActivity.title = "";
+        applyDungeonStartPauseToggle();
         return;
     }
     if (dungeon.status.event) {
@@ -1562,10 +1838,12 @@ const dungeonStartPause = () => {
             pendingDungeonStartPauseToggle = true;
             dungeonAction.innerHTML = "机缘未决，已为你排队：当前异象结束后自动切换。";
             if (dungeonActivity) dungeonActivity.title = "当前有事件待处理，已排队自动切换";
+            syncRunBarModeText();
             return;
         }
     }
     pendingDungeonStartPauseToggle = false;
+    if (dungeonActivity) dungeonActivity.title = "";
     applyDungeonStartPauseToggle();
 }
 
@@ -1577,6 +1855,34 @@ const dungeonCounter = () => {
     saveData();
 }
 
+/**
+ * 突破新的历史最高秘境层：更新层数、突破当时修为快照（maxDungeonFloorReachLvl）；
+ * 历史最高等级（maxDungeonFloorLvl）只升不降，避免「冲层时当前等级较低」覆盖此前升级记录。
+ */
+function dongtianRecordMaxDungeonFloorIfHigher(curFloor) {
+    if (typeof player === "undefined" || !player || typeof curFloor !== "number" || isNaN(curFloor)) return false;
+    var floorN = Math.max(1, Math.floor(curFloor));
+    var snapLvl = typeof player.lvl === "number" && player.lvl >= 1 ? Math.floor(player.lvl) : 1;
+    var prevMaxLvl =
+        typeof player.maxDungeonFloorLvl === "number" && !isNaN(player.maxDungeonFloorLvl)
+            ? Math.floor(player.maxDungeonFloorLvl)
+            : 0;
+    var changed = false;
+    if (typeof player.maxDungeonFloor !== "number" || isNaN(player.maxDungeonFloor) || player.maxDungeonFloor < 1) {
+        player.maxDungeonFloor = floorN;
+        changed = true;
+    } else if (floorN > player.maxDungeonFloor) {
+        player.maxDungeonFloor = floorN;
+        changed = true;
+    }
+    if (!changed) return false;
+    player.maxDungeonFloorReachLvl = snapLvl;
+    player.maxDungeonFloorSect = player.sect || null;
+    player.maxDungeonFloorLvl = Math.max(prevMaxLvl > 0 ? prevMaxLvl : 1, snapLvl);
+    return true;
+}
+if (typeof window !== "undefined") window.dongtianRecordMaxDungeonFloorIfHigher = dongtianRecordMaxDungeonFloorIfHigher;
+
 // Loads the floor and room count
 const loadDungeonProgress = () => {
     if (escort.active || (typeof mining !== "undefined" && mining && mining.active)) {
@@ -1586,30 +1892,30 @@ const loadDungeonProgress = () => {
     if (dungeon.progress.room > dungeon.progress.roomLimit) {
         dungeon.progress.room = 1;
         dungeon.progress.floor++;
-    }
-    // 记录玩家历史最高秘境层数，并在当时快照保存等级/门派
-    var curFloor = dungeon.progress.floor;
-    if (typeof player !== "undefined" && player && typeof curFloor === "number") {
-        var changed = false;
-        if (typeof player.maxDungeonFloor !== "number" || isNaN(player.maxDungeonFloor) || player.maxDungeonFloor < 1) {
-            player.maxDungeonFloor = curFloor;
-            player.maxDungeonFloorLvl = typeof player.lvl === "number" && player.lvl >= 1 ? Math.floor(player.lvl) : 1;
-            player.maxDungeonFloorSect = player.sect || null;
-            changed = true;
-        } else if (curFloor > player.maxDungeonFloor) {
-            player.maxDungeonFloor = curFloor;
-            player.maxDungeonFloorLvl = typeof player.lvl === "number" && player.lvl >= 1 ? Math.floor(player.lvl) : 1;
-            player.maxDungeonFloorSect = player.sect || null;
-            changed = true;
+        if (dungeon && dungeon.settings) {
+            var _nf = Math.max(1, Math.floor(Number(dungeon.progress.floor) || 1));
+            dungeon.settings.eventOppBonusTrackFloor = _nf;
+            dungeon.settings.eventOppBonusAppliedThisFloor = { hp: 0, atk: 0, def: 0, atkSpd: 0, vamp: 0, critRate: 0, critDmg: 0 };
         }
-        if (changed && typeof saveData === "function") saveData();
+    }
+    // 记录玩家历史最高秘境层数，并在突破时快照保存当时等级/门派
+    var curFloor = dungeon.progress.floor;
+    if (
+        typeof dongtianRecordMaxDungeonFloorIfHigher === "function" &&
+        dongtianRecordMaxDungeonFloorIfHigher(curFloor)
+    ) {
+        persistDungeonCloudSave(true);
     }
     floorCount.innerHTML = `秘境层 ${dungeon.progress.floor}`;
     roomCount.innerHTML = `劫数 ${dungeon.progress.room}`;
+    try {
+        if (typeof window.dongtianSyncHubFeaturesJieLock === "function") window.dongtianSyncHubFeaturesJieLock();
+    } catch (eHubJie2) {}
 }
 
 function openEscortRiskChooser() {
     if (!escort.status) escort.status = { exploring: false, paused: true, event: false, choosing: false };
+    markRunModeChooserOpened();
     escort.status.event = true;
     escort.status.choosing = true;
     var remain = getEscortDailyRemain();
@@ -1955,6 +2261,11 @@ function escortBossEncounter() {
 
 function escortTickEvent() {
     if (!escort.active || !escort.status.exploring || escort.status.event) return;
+    /** 斗法已结束但「收纳战利/重整再战」尚未点：inCombat 已为 false，若仍推进押镖 tick 会与战况面板竞态叠新事件 */
+    try {
+        if (typeof enemyDead !== "undefined" && enemyDead) return;
+        if (typeof playerDead !== "undefined" && playerDead) return;
+    } catch (eTickDead) {}
     escort.action++;
     // 首领固定压轴：仅在最后一段触发，避免提前出现打乱节奏
     if (!escort.bossTriggered && escort.progress.segment === Math.max(0, escort.progress.segmentLimit - 1)) {
@@ -2071,11 +2382,7 @@ function endMiningRun(success) {
     dungeonAction.innerHTML = "于安全锚点暂歇……";
     dungeonActivity.innerHTML = "深入秘境";
     syncRunBarModeText();
-    if (typeof saveData === "function") saveData();
-    if (window.DONGTIAN_CLOUD_MODE && typeof window.__dongtianCloudFlushSave === "function") {
-        if (typeof window.cancelPendingDongtianCloudSave === "function") window.cancelPendingDongtianCloudSave();
-        window.__dongtianCloudFlushSave();
-    }
+    persistDungeonCloudSave(true);
 }
 
 function claimMiningBattleVictory() {
@@ -2130,7 +2437,20 @@ function miningBattleEncounter() {
     var tier = Math.max(0, Math.min(4, Math.floor(mining.tier)));
     var beastLine = pickMiningRand(MINING_BEAST_ENCOUNTER_BY_TIER[tier] || MINING_BEAST_ENCOUNTER_BY_TIER[0]);
     addDungeonLog(beastLine, choices);
-    document.querySelector("#mb1").onclick = function () {
+    var mb1 = document.querySelector("#mb1");
+    var mb2 = document.querySelector("#mb2");
+    if (!mb1 || !mb2) {
+        try {
+            mining.status.event = false;
+            mining.status.exploring = false;
+            mining.status.paused = true;
+            addDungeonLog('<span class="Common">地脉抉择界面未就绪，已暂缓遇兽；请点「再入地脉」或刷新后再试。</span>');
+            if (typeof updateDungeonLog === "function") updateDungeonLog();
+            if (typeof syncRunBarModeText === "function") syncRunBarModeText();
+        } catch (eMb) {}
+        return;
+    }
+    mb1.onclick = function () {
         var segIdx = mining && mining.progress && typeof mining.progress.segment === "number" ? mining.progress.segment : 0;
         var segLimit = mining && mining.progress && typeof mining.progress.segmentLimit === "number" ? mining.progress.segmentLimit : 1;
         var isLast = segLimit > 0 && segIdx >= segLimit - 1;
@@ -2166,7 +2486,7 @@ function miningBattleEncounter() {
             updateDungeonLog();
         });
     };
-    document.querySelector("#mb2").onclick = function () {
+    mb2.onclick = function () {
         addDungeonLog("你敛镐后撤，地脉灵机如潮退去；洞府残响渐远，留与后人。");
         mining.status.event = false;
         endMiningRun(false);
@@ -2176,12 +2496,18 @@ function miningBattleEncounter() {
 
 function miningTickEvent() {
     if (!mining.active || !mining.status.exploring || mining.status.event) return;
+    /** 同上：斩杀结算后、关斗法面板前勿再触地脉遇兽，否则日志/状态与战况 UI 叠套 */
+    try {
+        if (typeof enemyDead !== "undefined" && enemyDead) return;
+        if (typeof playerDead !== "undefined" && playerDead) return;
+    } catch (eMineDead) {}
     mining.action++;
     miningBattleEncounter();
     maybeBondSoulSideWhisper("mining");
 }
 
 function openMiningTierChooser() {
+    markRunModeChooserOpened();
     mining.status.event = true;
     mining.status.choosing = true;
     var remain = getMiningDailyRemain();
@@ -2218,59 +2544,67 @@ function openMiningTierChooser() {
 }
 
 function startMiningRun(tierIdx) {
+    if (miningStartLocked) return;
+    if (mining && mining.active) return;
+    if (!mining || !mining.status || !mining.status.choosing) return;
+    miningStartLocked = true;
     tierIdx = Math.max(0, Math.min(MINING_TIER_DEF.length - 1, Math.floor(Number(tierIdx) || 0)));
-    if (typeof escort !== "undefined" && escort && escort.active) {
-        addDungeonLog("红尘镖事未了，地脉不便同启——且先走完这一程人间因果。");
+    try {
+        if (typeof escort !== "undefined" && escort && escort.active) {
+            addDungeonLog("红尘镖事未了，地脉不便同启——且先走完这一程人间因果。");
+            mining.status.event = false;
+            mining.status.choosing = false;
+            return;
+        }
+        var curRoom = getCurrentCalamityRoom();
+        if (curRoom >= MINING_ROOM_OPEN_BLOCK_AT) {
+            addDungeonLog(
+                `<span class="Common">此劫之后，地脉自封。</span> 劫数 ${MINING_ROOM_OPEN_BLOCK_AT} 起，洞府矿机缘暂绝，莫强入。`
+            );
+            mining.status.event = false;
+            mining.status.choosing = false;
+            syncRunBarModeText();
+            return;
+        }
+        if (!consumeMiningDailyTicket()) {
+            addDungeonLog(
+                `<span class="Common">采矿令已尽。</span> 待时辰流转、令纹重凝，方可再叩地脉（下次：${miningNextRecoverText()}）。`
+            );
+            mining.status.event = false;
+            mining.status.choosing = false;
+            syncRunBarModeText();
+            return;
+        }
+        var def = MINING_TIER_DEF[tierIdx];
+        abortDongtianCloudMeetInFlight();
+        if (typeof dungeon !== "undefined" && dungeon && dungeon.status) dungeon.status.event = false;
+        mining.active = true;
+        mining.tier = tierIdx;
+        mining.progress.segment = 0;
+        mining.progress.segmentLimit = def.segmentLimit;
+        mining.cartHp = def.cartHp;
+        mining.action = 0;
+        mining.pendingBattle = null;
+        mining.awaitingCombatOutcome = false;
+        mining.unlockAtRoom = 0;
+        mining.status.exploring = true;
+        mining.status.paused = false;
         mining.status.event = false;
         mining.status.choosing = false;
-        return;
-    }
-    var curRoom = getCurrentCalamityRoom();
-    if (curRoom >= MINING_ROOM_OPEN_BLOCK_AT) {
+        dungeon.status.exploring = false;
+        dungeon.status.paused = true;
+        dungeonActivity.innerHTML = "深入秘境";
+        dungeonAction.innerHTML = `地脉采掘（${def.name}）`;
+        var desc = typeof def.descend === "string" && def.descend ? def.descend : "";
         addDungeonLog(
-            `<span class="Common">此劫之后，地脉自封。</span> 劫数 ${MINING_ROOM_OPEN_BLOCK_AT} 起，洞府矿机缘暂绝，莫强入。`
+            desc +
+                `<br><span class="Common">此脉需镇杀 <b>${def.segmentLimit}</b> 波矿兽，地脉稳固余 <b>${Math.max(0, Math.floor(mining.cartHp))}%</b>；稳固归零则机缘溃散。</span>`
         );
-        mining.status.event = false;
-        mining.status.choosing = false;
         syncRunBarModeText();
-        return;
+        if (typeof saveData === "function") saveData();
+    } finally {
+        miningStartLocked = false;
     }
-    if (!consumeMiningDailyTicket()) {
-        addDungeonLog(
-            `<span class="Common">采矿令已尽。</span> 待时辰流转、令纹重凝，方可再叩地脉（下次：${miningNextRecoverText()}）。`
-        );
-        mining.status.event = false;
-        mining.status.choosing = false;
-        syncRunBarModeText();
-        return;
-    }
-    var def = MINING_TIER_DEF[tierIdx];
-    abortDongtianCloudMeetInFlight();
-    if (typeof dungeon !== "undefined" && dungeon && dungeon.status) dungeon.status.event = false;
-    mining.active = true;
-    mining.tier = tierIdx;
-    mining.progress.segment = 0;
-    mining.progress.segmentLimit = def.segmentLimit;
-    mining.cartHp = def.cartHp;
-    mining.action = 0;
-    mining.pendingBattle = null;
-    mining.awaitingCombatOutcome = false;
-    mining.unlockAtRoom = 0;
-    mining.status.exploring = true;
-    mining.status.paused = false;
-    mining.status.event = false;
-    mining.status.choosing = false;
-    dungeon.status.exploring = false;
-    dungeon.status.paused = true;
-    dungeonActivity.innerHTML = "深入秘境";
-    dungeonAction.innerHTML = `地脉采掘（${def.name}）`;
-    var desc = typeof def.descend === "string" && def.descend ? def.descend : "";
-    addDungeonLog(
-        desc +
-            `<br><span class="Common">此脉需镇杀 <b>${def.segmentLimit}</b> 波矿兽，地脉稳固余 <b>${Math.max(0, Math.floor(mining.cartHp))}%</b>；稳固归零则机缘溃散。</span>`
-    );
-    syncRunBarModeText();
-    if (typeof saveData === "function") saveData();
 }
 
 function miningStartPause() {
@@ -2388,33 +2722,67 @@ function isDongtianCloudMeetBlockedByRunMode() {
     }
 }
 
+/** 藏宝图侧战（启图/待领/结算中）：勿走秘境主事件掷骰，否则会连刷「洞天石门」等 nextroom */
+function isDungeonTickBlockedByTreasureMapSideCombat() {
+    try {
+        if (typeof window !== "undefined") {
+            if (window.__treasureMapCombatSettling) return true;
+            if (window.__treasureMapAwaitingClaim) return true;
+            if (window.__treasureMapCompleteInFlight) return true;
+        }
+        if (
+            typeof window.isTreasureMapCombatSessionActive === "function" &&
+            window.isTreasureMapCombatSessionActive()
+        ) {
+            return true;
+        }
+    } catch (eTm) {}
+    return false;
+}
+
 /** event 挂起但日志里无双可点且未在斗法：多为状态与 UI 脱节后卡住；累计数次 tick 后自愈（避免只能凝滞/再进秘境） */
 var __dungeonEventStuckTicks = 0;
-function tryHealDungeonEventDeadlock() {
-    if (!dungeon || !dungeon.status || !dungeon.status.event) {
-        __dungeonEventStuckTicks = 0;
-        return false;
-    }
-    if (typeof escort !== "undefined" && escort && escort.active) {
-        __dungeonEventStuckTicks = 0;
-        return false;
-    }
-    if (typeof mining !== "undefined" && mining && mining.active) {
-        __dungeonEventStuckTicks = 0;
-        return false;
-    }
-    if (player && player.inCombat) {
-        __dungeonEventStuckTicks = 0;
-        return false;
-    }
+function dungeonEventAppearsOrphaned() {
+    if (!dungeon || !dungeon.status || !dungeon.status.event) return false;
+    if (typeof escort !== "undefined" && escort && escort.status && escort.status.choosing) return false;
+    if (typeof mining !== "undefined" && mining && mining.status && mining.status.choosing) return false;
+    if (isDungeonTickBlockedByTreasureMapSideCombat()) return false;
+    if (typeof escort !== "undefined" && escort && escort.active) return false;
+    if (typeof mining !== "undefined" && mining && mining.active) return false;
+    if (player && player.inCombat) return false;
+    /** 斗法已结束但仍在等「收纳战利/重整再战」：inCombat 已为 false，若仍计为卡死会在约 8s 清 event，秘境 tick 会跑 generateRandomEnemy 剥掉 enemy.dragonTower/demonTower，塔战败回调误走 progressReset（表现为登龙塔/魔神塔败后退出秘境）。 */
+    if (typeof playerDead !== "undefined" && playerDead) return false;
+    if (typeof enemyDead !== "undefined" && enemyDead) return false;
+    /** 结算按钮在斗法面板 #combatLogBox 内，不在 #dungeonLog；多一层防护避免误清 event */
+    try {
+        var cp = document.getElementById("combatPanel");
+        if (cp) {
+            var cps = window.getComputedStyle ? window.getComputedStyle(cp) : null;
+            var vis = cps && cps.display && cps.display !== "none";
+            if (vis && cp.querySelector("#battleButton, .decision-panel button")) return false;
+        }
+        /** #battleButton 可能不在 cp 子树内（嵌入/换肤）；只要可见即视为待结算，勿触发自愈清 event */
+        var bb = document.getElementById("battleButton");
+        if (bb) {
+            var bbs = window.getComputedStyle ? window.getComputedStyle(bb) : null;
+            var bbVis =
+                bbs && bbs.display && bbs.display !== "none" && bbs.visibility !== "hidden" && Number(bbs.opacity || 1) > 0.05;
+            if (bbVis) return false;
+        }
+    } catch (eCp) {}
     var logRoot = document.querySelector("#dungeonLog");
     if (!logRoot) return false;
-    if (logRoot.querySelector(".decision-panel button")) {
+    if (logRoot.querySelector(".decision-panel button")) return false;
+    return true;
+}
+
+function tryHealDungeonEventDeadlock() {
+    if (!dungeonEventAppearsOrphaned()) {
         __dungeonEventStuckTicks = 0;
         return false;
     }
     __dungeonEventStuckTicks++;
-    if (__dungeonEventStuckTicks < 8) return false;
+    if (__dungeonEventStuckTicks < 5) return false;
     __dungeonEventStuckTicks = 0;
     dungeon.status.event = false;
     addDungeonLog(
@@ -2422,12 +2790,23 @@ function tryHealDungeonEventDeadlock() {
     );
     if (typeof updateDungeonLog === "function") updateDungeonLog();
     if (typeof syncRunBarModeText === "function") syncRunBarModeText();
+    if (
+        pendingDungeonStartPauseToggle &&
+        dungeon.status &&
+        !dungeon.status.event &&
+        !escort.active &&
+        !(typeof mining !== "undefined" && mining && mining.active)
+    ) {
+        pendingDungeonStartPauseToggle = false;
+        if (typeof applyDungeonStartPauseToggle === "function") applyDungeonStartPauseToggle();
+    }
     return true;
 }
 
 // ========== Events in the Dungeon ==========
 const dungeonEvent = () => {
     tryHealDungeonEventDeadlock();
+    if (isDungeonTickBlockedByTreasureMapSideCombat()) return;
     /** 敌势上限勿放在本函数开头：定时器约每秒触发，会在「加敌势」奇遇结算后立刻把数值钳回上限，表现为事件不生效。改在掷骰并跑完 switch 后再钳一次（mergeDungeonDefaults / 换层读档仍会钳）。 */
     if (escort.active && escort.status.exploring && !escort.status.event) {
         escortTickEvent();
@@ -2448,6 +2827,17 @@ const dungeonEvent = () => {
     if (dungeon.status.exploring && !dungeon.status.event) {
         if (tryAutoOpenMiningChooserOnRoomProgress()) return;
     }
+    if (isNextRoomIgnoreCombatQueueActive()) {
+        if (
+            dungeon.status.exploring &&
+            !dungeon.status.event &&
+            !(typeof player !== "undefined" && player && player.inCombat) &&
+            !dungeon._nrIgnoreCombatUiLock
+        ) {
+            startNextRoomIgnoreQueuedFight();
+        }
+        return;
+    }
     if (dungeon.status.exploring && !dungeon.status.event) {
         if (typeof window.dongtianPresencePingIfNeeded === "function") window.dongtianPresencePingIfNeeded();
         dungeon.action++;
@@ -2456,43 +2846,7 @@ const dungeonEvent = () => {
         let choices;
         let eventRoll;
         /* 基准池：遇敌约半池；缚咒/苦劫/天罚系/高危机缘额外加权，避免加敌势类事件体感过少 */
-        let eventTypes = new Array(25).fill("enemy").concat([
-            "nothing", "nothing", "nothing", "nothing", "nothing", "nothing", "nothing", "nothing", "nothing", "nothing",
-            "treasure", "treasure",
-            "blessing", "curse", "curse", "curse", "curse", "monarch",
-            "echoMirror", "wellspring", "whisperPact", "riftPedlar", "fateLedger", "factionOath", "doomChain", "abyssChain", "skyChain",
-            "lingquan", "daoTablet", "insight", "remnantPill",
-            "oddBeastDen", "oddBrokenAnvil",
-            "rageChain",
-            "heartDemon", "sectSpirit", "tianJiQian", "beastBond", "wanderStall",
-            "starCompass",
-            "sillyDrunkDice", "sillyBeastRace", "sillyFrog", "sillyFakeSage", "sillyGourd", "sillyVending",
-            "funShadowShell", "funPuppetFork", "funTideBet", "funCometWish", "funTeaPhantom", "funRiddleStone",
-            "funReverseLake", "funDebtCrow", "funLuckCat", "funMeridianDice", "funGhostMerchant", "funTwilightBridge",
-            "heavenWrath", "heavenWrath",
-            "bloodOathStele", "bloodOathStele",
-            "calamityRift", "calamityRift",
-            "perilVoidMaw", "perilVoidMaw",
-            "perilKarmicLedger", "perilKarmicLedger",
-            "perilSoulPyre", "perilSoulPyre",
-            "perilIronLotus", "perilIronLotus",
-            "perilAbyssWhisper", "perilAbyssWhisper",
-            "treasureAmbush",
-            "bondSoulChain", "bondSoulChain", "bondSoulChain",
-            "warmEaseLantern",
-            "warmEaseDewPool",
-            "warmEaseFallingLeaf",
-            "warmEaseHearthEcho",
-            "warmEaseFinchRest",
-            "warmEaseWallFlower",
-            "warmEaseScentTrace",
-            "warmEaseOldTune",
-            "warmEaseRainLetter",
-            "warmEaseTurnBack",
-            "warmEaseSilentPromise",
-            "warmEaseChildEcho",
-            "warmEaseFrostHand",
-        ]);
+        let eventTypes = DUNGEON_EVENT_TYPES_BASE.slice();
         const deepF = dungeon.progress.floor;
         const highTier = [];
         if (deepF >= 32) highTier.push("deepSpire");
@@ -2769,61 +3123,8 @@ const dungeonEvent = () => {
 
         switch (event) {
             case "nextroom":
-                dungeon.status.event = true;
-                var atLastRoom = dungeon.progress.room == dungeon.progress.roomLimit;
-                if (atLastRoom) {
-                    choices =
-                        '<div class="decision-panel decision-panel--boss-door">' +
-                        '<button type="button" id="choice1">踏入裂隙</button>' +
-                        "</div>";
-                } else {
-                    choices =
-                        '<div class="decision-panel">' +
-                        '<button type="button" id="choice1">踏入裂隙</button>' +
-                        '<button type="button" id="choice2">置之不理</button>' +
-                        "</div>";
-                }
-                if (atLastRoom) {
-                    addDungeonLog(`<span class="Heirloom">你窥见通往秘境之主的殿门</span>，唯有踏入一途。`, choices);
-                } else {
-                    addDungeonLog("一道洞天石门在雾中浮现", choices);
-                }
-                document.querySelector("#choice1").onclick = function () {
-                    if (dungeon.progress.room == dungeon.progress.roomLimit) {
-                        guardianBattle();
-                    } else {
-                        eventRoll = randomizeNum(1, 3);
-                        if (eventRoll == 1) {
-                            incrementRoom();
-                            mimicBattle("door");
-                            addDungeonLog(pickDeeperFloorLine());
-                        } else if (eventRoll == 2) {
-                            incrementRoom();
-                            choices = `
-                                <div class="decision-panel">
-                                    <button id="choice1">启封遗匣</button>
-                                    <button id="choice2">置之不理</button>
-                                </div>`;
-                            addDungeonLog(`你步入新劫数，幽光藏宝间中央悬着一口<i class="fa fa-toolbox"></i>灵宝匣。`, choices);
-                            document.querySelector("#choice1").onclick = function () {
-                                chestEvent();
-                            }
-                            document.querySelector("#choice2").onclick = function () {
-                                dungeon.action = 0;
-                                ignoreEvent();
-                            };
-                        } else {
-                            dungeon.status.event = false;
-                            incrementRoom();
-                            addDungeonLog("你抵达另一劫数，空无一物。");
-                        }
-                    }
-                };
-                if (!atLastRoom) {
-                    document.querySelector("#choice2").onclick = function () {
-                        dungeon.action = 0;
-                        ignoreEvent();
-                    };
+                if (!isNextRoomIgnoreCombatQueueActive()) {
+                    showNextRoomDoorEvent();
                 }
                 break;
             case "treasure":
@@ -2923,23 +3224,7 @@ const dungeonEvent = () => {
                 );
                 break;
             case "enemy":
-                dungeon.status.event = true;
-                generateRandomEnemy();
-                var counterBadge = typeof getPreCombatCounterBadgeText === "function" ? getPreCombatCounterBadgeText() : "未知";
-                var fightBtnText = counterBadge ? ("拔刃相峙（" + counterBadge + "）") : "拔刃相峙";
-                choices = `
-                    <div class="decision-panel">
-                        <button id="choice1">${fightBtnText}</button>
-                        <button id="choice2">遁入虚空</button>
-                    </div>`;
-                addDungeonLog(pickEnemyEncounterDungeonLine(), choices);
-                player.inCombat = true;
-                document.querySelector("#choice1").onclick = function () {
-                    engageBattle();
-                }
-                document.querySelector("#choice2").onclick = function () {
-                    fleeBattle();
-                }
+                startDungeonEnemyEncounterEvent();
                 break;
             case "blessing":
                 eventRoll = randomizeNum(1, 4);
@@ -3373,9 +3658,19 @@ const dungeonEvent = () => {
 }
 
 // ========= Dungeon Choice Events ==========
+var __dungeonEnterCombatLock = false;
+
 function enterCombatWithPreHint(onEnterCombat) {
+    if (__dungeonEnterCombatLock) return;
+    if (typeof player !== "undefined" && player && player.inCombat) return;
+    __dungeonEnterCombatLock = true;
     updateDungeonLog();
     setTimeout(function () {
+        __dungeonEnterCombatLock = false;
+        if (typeof player !== "undefined" && player && player.inCombat) return;
+        /** 新开战须清上一场 combatTimerSync，否则会按旧轴立刻连打（体感「莫名暴毙」） */
+        if (typeof window.clearCombatTimerSyncOnly === "function") window.clearCombatTimerSyncOnly();
+        if (typeof stripSpecialCombatEnemyMarks === "function") stripSpecialCombatEnemyMarks(enemy);
         showCombatInfo();
         startCombat();
         if (typeof onEnterCombat === "function") onEnterCombat();
@@ -3413,14 +3708,19 @@ const mimicBattle = (type) => {
 
 // Guardian boss fight
 const guardianBattle = () => {
-    incrementRoom();
+    /** 勿在开战前 incrementRoom：否则 room 20→21 会立刻触发 loadDungeonProgress 进下一层，输赢都已在下一层（与押镖/地脉用 guardian 模板无关，彼处不挂 __dungeonFloorGuardianGate）。 */
     generateRandomEnemy("guardian");
+    try {
+        if (typeof enemy === "object" && enemy) enemy.__dungeonFloorGuardianGate = true;
+    } catch (eFg) {}
     enterCombatWithPreHint(function () {
         addCombatLog(`秘境镇守${enemy.name}横亘殿门之前。`);
         if (typeof pickXiuxianQuote === "function" && Math.random() < 0.72) {
             addCombatLog(pickXiuxianQuote("boss"));
         }
-        addDungeonLog(pickDeeperFloorLine());
+        addDungeonLog(
+            '<span class="Heirloom">石门内灵机如沸——唯斩此獠，界膜方许你再窥下一重秘境。</span>'
+        );
     });
 }
 
@@ -3447,6 +3747,10 @@ const fleeBattle = () => {
         player.inCombat = false;
         if (typeof window.clearCombatTimerSyncOnly === "function") window.clearCombatTimerSyncOnly();
         dungeon.status.event = false;
+        if (typeof completeNextRoomIgnoreCombatRound === "function" && completeNextRoomIgnoreCombatRound()) {
+            if (typeof saveData === "function") saveData();
+            return;
+        }
         if (typeof saveData === "function") saveData();
     } else {
         addDungeonLog(`遁逃失败，灵雾将你推回战场！`);
@@ -3725,18 +4029,25 @@ function claimDangerBattleVictory() {
         }
     }
     if (typeof addMaterial === "function") {
-        if (typeof MATERIAL_ENHANCE_STONE !== "undefined" && Math.random() < (typeof b.enhanceStoneP === "number" ? b.enhanceStoneP : 0)) {
+        var enhP =
+            typeof b.enhanceStoneP === "number" && b.enhanceStoneP > 0 ? DANGER_ENHANCE_STONE_DROP_CHANCE : 0;
+        var encP =
+            typeof b.enchantStoneP === "number" && b.enchantStoneP > 0 ? DANGER_ENCHANT_STONE_DROP_CHANCE : 0;
+        if (typeof MATERIAL_ENHANCE_STONE !== "undefined" && Math.random() < enhP) {
             addMaterial(MATERIAL_ENHANCE_STONE, 1);
             if (typeof addCombatLog === "function") addCombatLog(`你自劫灰中拾得 <span class="Epic">强化石</span> ×1。`);
         }
-        if (typeof MATERIAL_ENCHANT_STONE !== "undefined" && Math.random() < (typeof b.enchantStoneP === "number" ? b.enchantStoneP : 0)) {
+        if (typeof MATERIAL_ENCHANT_STONE !== "undefined" && Math.random() < encP) {
             addMaterial(MATERIAL_ENCHANT_STONE, 1);
             if (typeof addCombatLog === "function") addCombatLog(`你自劫核中剥离 <span class="Legendary">附魔石</span> ×1。`);
         }
         if (typeof MATERIAL_TALENT_FRUIT !== "undefined" && typeof b.talentFruit === "number" && b.talentFruit > 0) {
-            addMaterial(MATERIAL_TALENT_FRUIT, Math.floor(b.talentFruit));
-            var fzh = typeof MATERIAL_TALENT_FRUIT_ZH !== "undefined" ? MATERIAL_TALENT_FRUIT_ZH : "天赋果";
-            if (typeof addCombatLog === "function") addCombatLog(`你自妖核里剥出<span class="Legendary">${fzh}</span> ×${Math.floor(b.talentFruit)}。`);
+            if (Math.random() < DANGER_TALENT_FRUIT_DROP_CHANCE) {
+                addMaterial(MATERIAL_TALENT_FRUIT, Math.floor(b.talentFruit));
+                var fzh = typeof MATERIAL_TALENT_FRUIT_ZH !== "undefined" ? MATERIAL_TALENT_FRUIT_ZH : "天赋果";
+                if (typeof addCombatLog === "function")
+                    addCombatLog(`你自妖核里剥出<span class="Legendary">${fzh}</span> ×${Math.floor(b.talentFruit)}。`);
+            }
         }
     }
     if (b.titleBuff && typeof b.titleBuff === "object" && dungeon && dungeon.settings) {
@@ -5562,7 +5873,7 @@ const factionOathEvent = () => {
 
     document.querySelector("#choice1").onclick = function () {
         rememberEventChoice("faction", 0.6);
-        player.bonusStats.atk += 1.2;
+        applyDungeonEventOpportunityBonusStat("atk", 1.2);
         scheduleDeferredEvent({
             kind: "factionChain",
             stage: 2,
@@ -5583,7 +5894,7 @@ const factionOathEvent = () => {
         rememberEventChoice("faction", 0.6);
         const heal = Math.max(1, Math.round(player.stats.hpMax * randomizeDecimal(0.1, 0.18)));
         player.stats.hp = Math.min(player.stats.hpMax, player.stats.hp + heal);
-        player.bonusStats.vamp += 0.8;
+        applyDungeonEventOpportunityBonusStat("vamp", 0.8);
         scheduleDeferredEvent({
             kind: "factionChain",
             stage: 2,
@@ -8063,6 +8374,14 @@ function pickCloudTravelerLine(arr) {
 }
 
 /** 根据对方层/劫/击杀生成一两句「像真人」的氛围旁白 */
+/** 联网道友展示名：带洞天公开编号 #1–#10 */
+function formatCloudTravelerDisplayName(t) {
+    var raw = t && t.name != null ? String(t.name) : "道友";
+    var pid = typeof t.publicId === "number" && t.publicId >= 1 && t.publicId <= 10000 ? Math.floor(t.publicId) : 0;
+    var label = pid ? "#" + pid + "·" + raw : raw;
+    return escapeDungeonLogText(label);
+}
+
 function buildCloudTravelerVibeHtml(t, myFloor, myRoom) {
     var tf = Math.floor(Number(t.floor) || 1);
     var tr = Math.floor(Number(t.room) || 1);
@@ -8621,7 +8940,7 @@ function cloudMeetTravelerEventWithVariant(variant) {
                     ).catch(function () {});
                 } catch (eNf) {}
             }
-            var nm = escapeDungeonLogText(t.name || "道友");
+            var nm = formatCloudTravelerDisplayName(t);
             var gr = escapeDungeonLogText(t.grade || "");
             var gline = gr ? `劫境 <b>${gr}</b> · ` : "";
             var killLine =
@@ -9549,7 +9868,6 @@ function prankLootAmbushEvent() {
         generateRandomEnemy();
         enemy.name = pick.battleName;
         applyPrankLootAmbushEnemyBoost();
-        player.inCombat = true;
         engageBattle();
         if (typeof updateDungeonLog === "function") updateDungeonLog();
     };
@@ -9963,8 +10281,8 @@ const bloodOathSteleEvent = () => {
         const dmg = Math.max(1, Math.round(player.stats.hpMax * randomizeDecimal(0.15, 0.24)));
         player.stats.hp = Math.max(1, player.stats.hp - dmg);
         if (Math.random() < 0.38) {
-            player.bonusStats.atk += 2.6;
-            player.bonusStats.critRate += 1.7;
+            applyDungeonEventOpportunityBonusStat("atk", 2.6);
+            applyDungeonEventOpportunityBonusStat("critRate", 1.7);
             addDungeonLog(`你以血为印，契成。代价：气血 <b>-${nFormatter(dmg)}</b>；回报：<span class="Legendary">力道 +2.6%、会心 +1.7%</span>（永久）。`);
         } else {
             dungeon.settings.enemyScaling += applyDungeonEnemyScalingGain(0.017);
@@ -10211,7 +10529,7 @@ const perilSoulPyreEvent = () => {
         if (Math.random() < 0.24) {
             const stats = ["hp", "atk", "def", "atkSpd", "vamp", "critRate", "critDmg"];
             const pick = stats[Math.floor(Math.random() * stats.length)];
-            player.bonusStats[pick] += 3.2;
+            applyDungeonEventOpportunityBonusStat(pick, 3.2);
             const zh = { hp: "气血", atk: "力道", def: "护体", atkSpd: "身法", vamp: "吸血", critRate: "会心", critDmg: "暴伤" };
             addDungeonLog(`魂火淬炼未灭，福至心灵：<span class="Legendary">${zh[pick]}</span> 机缘永久 <b>+3.2%</b>。`);
         } else {
@@ -10255,8 +10573,8 @@ const perilIronLotusEvent = () => {
 
     document.querySelector("#pil1").onclick = function () {
         if (Math.random() < 0.14) {
-            player.bonusStats.atk += 2.8;
-            player.bonusStats.critDmg += 2.2;
+            applyDungeonEventOpportunityBonusStat("atk", 2.8);
+            applyDungeonEventOpportunityBonusStat("critDmg", 2.2);
             addDungeonLog(`莲瓣合拢如铸，你竟撑过一轮：力道机缘永久 <b>+2.8%</b>，暴伤机缘永久 <b>+2.2%</b>。`);
         } else {
             const dmg = Math.max(1, Math.round(player.stats.hpMax * randomizeDecimal(0.38, 0.54)));
@@ -10367,8 +10685,8 @@ const heartDemonEvent = () => {
         if (Math.random() < 0.62) {
             const stats = ["hp", "atk", "def", "atkSpd", "vamp", "critRate", "critDmg"];
             const pick = stats[Math.floor(Math.random() * stats.length)];
-            player.bonusStats[pick] += 2.2;
-            addDungeonLog(`心魔崩碎！福至心灵，<span class="Legendary">${XIUXIAN_STAT_ZH[pick]}</span> 机缘永久 <b>+2.2%</b>。`);
+            var _hd1 = applyDungeonEventOpportunityBonusStat(pick, 2.2);
+            addDungeonLog(`心魔崩碎！福至心灵，<span class="Legendary">${XIUXIAN_STAT_ZH[pick]}</span> 机缘永久 <b>+${_hd1.toFixed(2)}%</b>。`);
         } else {
             const dmg = Math.max(1, Math.round(player.stats.hpMax * 0.18));
             player.stats.hp = Math.max(1, player.stats.hp - dmg);
@@ -10381,10 +10699,12 @@ const heartDemonEvent = () => {
         updateDungeonLog();
     };
     document.querySelector("#hd2").onclick = function () {
-        player.bonusStats.hp += 5.2;
-        player.bonusStats.atk += 5.2;
+        var _hdHp = applyDungeonEventOpportunityBonusStat("hp", 5.2);
+        var _hdAtk = applyDungeonEventOpportunityBonusStat("atk", 5.2);
         dungeon.settings.enemyScaling += applyDungeonEnemyScalingGain(0.03);
-        addDungeonLog(`你将魔念纳入丹田炼化：<span class="Legendary">气血、力道</span> 机缘各永久 <b>+5.2%</b>；代价为秘境敌势永久 <b>+0.030</b>。`);
+        addDungeonLog(
+            `你将魔念纳入丹田炼化：<span class="Legendary">气血</span> 机缘 <b>+${_hdHp.toFixed(2)}%</b>，<span class="Legendary">力道</span> <b>+${_hdAtk.toFixed(2)}%</b>；代价为秘境敌势永久 <b>+0.030</b>。`
+        );
         playerLoadStats();
         dungeon.status.event = false;
         saveData();
@@ -10438,10 +10758,10 @@ const sectSpiritEvent = () => {
         if (picked === correctText) {
             const stats = ["hp", "atk", "def", "atkSpd", "vamp", "critRate", "critDmg"];
             const pick = stats[Math.floor(Math.random() * stats.length)];
-            player.bonusStats[pick] += 2.5;
+            var _sq = applyDungeonEventOpportunityBonusStat(pick, 2.5);
             const g = applyGoldGainMult(randomizeNum(22, 62) * Math.max(1, dungeon.progress.floor));
             player.gold += g;
-            addDungeonLog(`残魂颔首：「可教。」<span class="Legendary">${XIUXIAN_STAT_ZH[pick]}</span> 机缘永久 <b>+2.5%</b>，并赠灵石 <i class="fas fa-coins" style="color: #FFD700;"></i>${nFormatter(g)}。`);
+            addDungeonLog(`残魂颔首：「可教。」<span class="Legendary">${XIUXIAN_STAT_ZH[pick]}</span> 机缘永久 <b>+${_sq.toFixed(2)}%</b>，并赠灵石 <i class="fas fa-coins" style="color: #FFD700;"></i>${nFormatter(g)}。`);
         } else {
             dungeon.settings.enemyScaling += applyDungeonEnemyScalingGain(0.014);
             const lossGold = Math.round(player.gold * 0.12);
@@ -10484,8 +10804,8 @@ const tianJiQianEvent = () => {
             addDungeonLog(`<span class="Legendary">签文：上上大吉。</span> 气血回涌 <span class="Common">${nFormatter(h)}</span>，灵石 <i class="fas fa-coins" style="color: #FFD700;"></i>${nFormatter(g)}。`);
         } else if (roll < 0.4) {
             const p = stats[Math.floor(Math.random() * stats.length)];
-            player.bonusStats[p] += 0.85;
-            addDungeonLog(`<span class="Epic">签文：吉。</span> <span class="Legendary">${XIUXIAN_STAT_ZH[p]}</span> 机缘永久 <b>+0.85%</b>。`);
+            var _tj = applyDungeonEventOpportunityBonusStat(p, 0.85);
+            addDungeonLog(`<span class="Epic">签文：吉。</span> <span class="Legendary">${XIUXIAN_STAT_ZH[p]}</span> 机缘永久 <b>+${_tj.toFixed(2)}%</b>。`);
         } else if (roll < 0.68) {
             const g = applyGoldGainMult(randomizeNum(44, 130) * Math.max(1, dungeon.progress.floor));
             player.gold += g;
@@ -10530,9 +10850,11 @@ const beastBondEvent = () => {
             addDungeonLog("灵石不足，小兽扫尾离去。");
         } else {
             player.gold -= cost;
-            player.bonusStats.hp += 1.1;
-            player.bonusStats.def += 0.65;
-            addDungeonLog(`小兽蹭掌离去——<span class="Legendary">气血</span> 机缘 <b>+1.1%</b>，<span class="Legendary">护体</span> <b>+0.65%</b>。`);
+            var _bbHp = applyDungeonEventOpportunityBonusStat("hp", 1.1);
+            var _bbDef = applyDungeonEventOpportunityBonusStat("def", 0.65);
+            addDungeonLog(
+                `小兽蹭掌离去——<span class="Legendary">气血</span> 机缘 <b>+${_bbHp.toFixed(2)}%</b>，<span class="Legendary">护体</span> <b>+${_bbDef.toFixed(2)}%</b>。`
+            );
         }
         playerLoadStats();
         dungeon.status.event = false;
@@ -10592,8 +10914,8 @@ const wanderStallEvent = () => {
             if (Math.random() < 0.55) {
                 const stats = ["atk", "def", "atkSpd", "critRate", "critDmg"];
                 const p = stats[Math.floor(Math.random() * stats.length)];
-                player.bonusStats[p] += 1.35;
-                addDungeonLog(`玉符化光入袖。<span class="Legendary">${XIUXIAN_STAT_ZH[p]}</span> 机缘永久 <b>+1.35%</b>。`);
+                var _ws = applyDungeonEventOpportunityBonusStat(p, 1.35);
+                addDungeonLog(`玉符化光入袖。<span class="Legendary">${XIUXIAN_STAT_ZH[p]}</span> 机缘永久 <b>+${_ws.toFixed(2)}%</b>。`);
             } else {
                 dungeon.settings.enemyScaling += applyDungeonEnemyScalingGain(0.017);
                 const g = applyGoldGainMult(randomizeNum(65, 155) * Math.max(1, dungeon.progress.floor));
@@ -10729,8 +11051,10 @@ const whisperPactEvent = () => {
         dungeon.settings.enemyScaling += applyDungeonEnemyScalingGain(0.026);
         const stats = ["hp", "atk", "def", "atkSpd", "vamp", "critRate", "critDmg"];
         const pick = stats[Math.floor(Math.random() * stats.length)];
-        player.bonusStats[pick] += grants[pick];
-        addDungeonLog(`薪约烙成。全境敌意暗涨（敌势系数现为 <span class="Heirloom">${dungeon.settings.enemyScaling.toFixed(2)}</span>），你的<span class="Legendary">${statZh[pick]}</span>机缘永久 +${grants[pick]}%。`);
+        var _wp = applyDungeonEventOpportunityBonusStat(pick, grants[pick]);
+        addDungeonLog(
+            `薪约烙成。全境敌意暗涨（敌势系数现为 <span class="Heirloom">${dungeon.settings.enemyScaling.toFixed(2)}</span>），你的<span class="Legendary">${statZh[pick]}</span>机缘永久 +${_wp.toFixed(2)}%。`
+        );
         playerLoadStats();
         dungeon.status.event = false;
         saveData();
@@ -10839,9 +11163,11 @@ const boneCourtEvent = () => {
         const pick1 = pool[i1];
         pool = pool.filter((s) => s !== pick1);
         const pick2 = pool[Math.floor(Math.random() * pool.length)];
-        player.bonusStats[pick1] += grants[pick1];
-        player.bonusStats[pick2] += grants[pick2];
-        addDungeonLog(`朱纹烙进腕骨。你失去 <span class="Common">${nFormatter(tithe)}</span> 气血残焰，却换来<span class="Legendary">${statZh[pick1]}</span> +${grants[pick1]}% 与 <span class="Legendary">${statZh[pick2]}</span> +${grants[pick2]}%——骨庭从不记账，只记血温。`);
+        var _bc1 = applyDungeonEventOpportunityBonusStat(pick1, grants[pick1]);
+        var _bc2 = applyDungeonEventOpportunityBonusStat(pick2, grants[pick2]);
+        addDungeonLog(
+            `朱纹烙进腕骨。你失去 <span class="Common">${nFormatter(tithe)}</span> 气血残焰，却换来<span class="Legendary">${statZh[pick1]}</span> +${_bc1.toFixed(2)}% 与 <span class="Legendary">${statZh[pick2]}</span> +${_bc2.toFixed(2)}%——骨庭从不记账，只记血温。`
+        );
         playerLoadStats();
         dungeon.status.event = false;
         saveData();
@@ -10942,33 +11268,27 @@ const statBlessing = () => {
     switch (buff) {
         case "hp":
             value = 12;
-            player.bonusStats.hp += value;
             break;
         case "atk":
             value = 8;
-            player.bonusStats.atk += value;
             break;
         case "def":
             value = 8;
-            player.bonusStats.def += value;
             break;
         case "atkSpd":
             value = 8;
-            player.bonusStats.atkSpd += value;
             break;
         case "vamp":
             value = 5;
-            player.bonusStats.vamp += value;
             break;
         case "critRate":
             value = 5;
-            player.bonusStats.critRate += value;
             break;
         case "critDmg":
             value = 15;
-            player.bonusStats.critDmg += value;
             break;
     }
+    var appliedBless = applyDungeonEventOpportunityBonusStat(buff, value);
     const blessingStatZh = {
         hp: "气血",
         atk: "力道",
@@ -10978,10 +11298,12 @@ const statBlessing = () => {
         critRate: "会心",
         critDmg: "暴伤"
     };
-    addDungeonLog(`天眷灌注：${blessingStatZh[buff] || buff}增幅${value}%。（天眷 ${player.blessing} 层 → ${player.blessing + 1} 层）`);
+    addDungeonLog(
+        `天眷灌注：${blessingStatZh[buff] || buff}增幅${appliedBless.toFixed(2)}%。（天眷 ${player.blessing} 层 → ${player.blessing + 1} 层）`
+    );
     blessingUp();
     playerLoadStats();
-    saveData();
+    persistDungeonCloudSave(true);
 }
 
 // 缚咒桩献奉：邪印不按全局 DUNGEON_ENEMY_SCALING_GAIN_MULT（如 ×0.3）压缩，每次献奉实打实 +0.1 敌势（再钳到本层上限）。
@@ -11295,8 +11617,9 @@ function qingmingChainStageThreeEpilogue(p) {
         }
         player.gold += goldGain;
         player.stats.hp = Math.min(player.stats.hpMax, player.stats.hp + heal);
+        var _qmHp = 0;
         if (v >= 5 && player.bonusStats) {
-            player.bonusStats.hp += 4.5;
+            _qmHp = applyDungeonEventOpportunityBonusStat("hp", 4.5);
         }
         if (dungeon && dungeon.settings && v >= 4) {
             dungeon.settings.chainTitleBuff = {
@@ -11313,7 +11636,7 @@ function qingmingChainStageThreeEpilogue(p) {
                     : dongtianDungeonPlayerExpMissedGainHintZh(expGain, false) + "，"
                 : "") +
             `灵石 <i class="fas fa-coins" style="color: #FFD700;"></i>${nFormatter(goldGain)}，气血 <b>+${nFormatter(heal)}</b>` +
-                (v >= 5 ? `，<span class="Legendary">气血机缘永久 +4.5%</span>` : "") +
+                (v >= 5 ? `，<span class="Legendary">气血机缘永久 +${_qmHp.toFixed(2)}%</span>` : "") +
                 (v >= 4 ? `。<span class="Apexother">称号「春晖过客」</span>加身（本次秘境生效）。` : `。`) +
                 ` 你伫立良久，雨意已远，心口那一点余温也慢慢冷了——像有人替你掖过被角，手却抽得太快，只留下空。`
         );
@@ -12581,12 +12904,16 @@ function bondSoulChainFinale(p) {
 
     var permHtml = "";
     if (epilogueKey === "union" && player.bonusStats && Math.random() < 0.92) {
-        player.bonusStats.hp += 3.2;
-        player.bonusStats.atk += 3.2;
-        permHtml = ` <span class="Legendary">气血、力道机缘永久各 +3.2%</span>`;
+        var _bsuHp = applyDungeonEventOpportunityBonusStat("hp", 3.2);
+        var _bsuAtk = applyDungeonEventOpportunityBonusStat("atk", 3.2);
+        if (_bsuHp > 0 || _bsuAtk > 0) {
+            permHtml = ` <span class="Legendary">气血机缘 +${_bsuHp.toFixed(2)}%、力道机缘 +${_bsuAtk.toFixed(2)}%</span>`;
+        }
     } else if (epilogueKey === "guard" && player.bonusStats && Math.random() < 0.55) {
-        player.bonusStats.def += 2.4;
-        permHtml = ` <span class="Epic">护体机缘永久 +2.4%</span>`;
+        var _bsgDef = applyDungeonEventOpportunityBonusStat("def", 2.4);
+        if (_bsgDef > 0) {
+            permHtml = ` <span class="Epic">护体机缘永久 +${_bsgDef.toFixed(2)}%</span>`;
+        }
     }
 
     var endBtn = pickBondSoulLine([
@@ -12744,10 +13071,10 @@ function claimOptionalEmotionCombatVictories() {
     }
     if (dungeonBeastBondCombatPending) {
         dungeonBeastBondCombatPending = null;
-        player.bonusStats.hp += 1.05;
-        player.bonusStats.def += 0.62;
+        var _bbcHp = applyDungeonEventOpportunityBonusStat("hp", 1.05);
+        var _bbcDef = applyDungeonEventOpportunityBonusStat("def", 0.62);
         addDungeonLog(
-            `<span class="Rare">护兽一战终了。</span>小兽蹭你掌心，灵韵入体——<span class="Legendary">气血</span> 机缘 <b>+1.05%</b>，<span class="Legendary">护体</span> <b>+0.62%</b>。`
+            `<span class="Rare">护兽一战终了。</span>小兽蹭你掌心，灵韵入体——<span class="Legendary">气血</span> 机缘 <b>+${_bbcHp.toFixed(2)}%</b>，<span class="Legendary">护体</span> <b>+${_bbcDef.toFixed(2)}%</b>。`
         );
         playerLoadStats();
         dungeon.status.event = false;
@@ -12775,10 +13102,10 @@ function claimOptionalEmotionCombatVictories() {
         dungeon.settings.enemyScaling += applyDungeonEnemyScalingGain(0.026);
         var stats = ["hp", "atk", "def", "atkSpd", "vamp", "critRate", "critDmg"];
         var pick = stats[Math.floor(Math.random() * stats.length)];
-        player.bonusStats[pick] += grants[pick];
+        var _wpc = applyDungeonEventOpportunityBonusStat(pick, grants[pick]);
         addDungeonLog(
             `低语化身碎于剑下，余烬仍烙进心识。<span class="Heirloom">敌势系数现为 ${dungeon.settings.enemyScaling.toFixed(2)}</span>；` +
-                `你的<span class="Legendary">${statZh[pick]}</span>机缘永久 <b>+${grants[pick]}%</b>。`
+                `你的<span class="Legendary">${statZh[pick]}</span>机缘永久 <b>+${_wpc.toFixed(2)}%</b>。`
         );
         playerLoadStats();
         dungeon.status.event = false;
@@ -12791,9 +13118,9 @@ function claimOptionalEmotionCombatVictories() {
         if (Math.random() < 0.72) {
             var stats2 = ["hp", "atk", "def", "atkSpd", "vamp", "critRate", "critDmg"];
             var pick2 = stats2[Math.floor(Math.random() * stats2.length)];
-            player.bonusStats[pick2] += 2.2;
+            var _hd4 = applyDungeonEventOpportunityBonusStat(pick2, 2.2);
             addDungeonLog(
-                `心魔实体崩碎！福至心灵，<span class="Legendary">${XIUXIAN_STAT_ZH[pick2]}</span> 机缘永久 <b>+2.2%</b>。`
+                `心魔实体崩碎！福至心灵，<span class="Legendary">${XIUXIAN_STAT_ZH[pick2]}</span> 机缘永久 <b>+${_hd4.toFixed(2)}%</b>。`
             );
         } else {
             var dmg = Math.max(1, Math.round(player.stats.hpMax * 0.16));
@@ -12810,48 +13137,13 @@ function claimOptionalEmotionCombatVictories() {
     }
 }
 
-/** 同一劫数内反复战斗：玩家修为叠乘衰减（每场战后计数 +1）；灵宠仍按击杀「全额修为」比例分流，不受此影响。计数存 dungeon.progress，随存档走，避免读档刷满额修为。 */
-var DUNGEON_SAME_ROOM_PLAYER_EXP_DECAY_BASE = 0.88;
-var DUNGEON_SAME_ROOM_PLAYER_EXP_DECAY_FLOOR = 0.22;
-
-function isDongtianMainDungeonSameRoomDecayActive() {
-    try {
-        if (typeof escort !== "undefined" && escort && escort.active) return false;
-        if (typeof mining !== "undefined" && mining && mining.active) return false;
-        if (typeof dungeon === "undefined" || !dungeon || !dungeon.status) return false;
-        return dungeon.status.exploring === true;
-    } catch (e) {
-        return false;
-    }
-}
-
-function dongtianEnsureSameRoomDecayAnchor() {
-    if (!dungeon || !dungeon.progress) return;
-    var f = Math.max(1, Math.floor(Number(dungeon.progress.floor) || 1));
-    var r = Math.max(1, Math.floor(Number(dungeon.progress.room) || 1));
-    var af = dungeon.progress.sameRoomPlayerExpAnchorFloor;
-    var ar = dungeon.progress.sameRoomPlayerExpAnchorRoom;
-    var afN = typeof af === "number" && !isNaN(af) ? Math.max(1, Math.floor(af)) : null;
-    var arN = typeof ar === "number" && !isNaN(ar) ? Math.max(1, Math.floor(ar)) : null;
-    if (afN !== f || arN !== r) {
-        dungeon.progress.sameRoomPlayerExpBattles = 0;
-        dungeon.progress.sameRoomPlayerExpAnchorFloor = f;
-        dungeon.progress.sameRoomPlayerExpAnchorRoom = r;
-    }
-}
-
+/** 同劫反复战斗：玩家修为不再衰减（恒为 1×；计数字段仍保留以兼容旧档） */
 function getDongtianSameRoomPlayerExpMultiplier() {
-    if (!isDongtianMainDungeonSameRoomDecayActive()) return 1;
-    dongtianEnsureSameRoomDecayAnchor();
-    var n = Math.max(0, Math.floor(Number(dungeon.progress.sameRoomPlayerExpBattles) || 0));
-    return Math.max(DUNGEON_SAME_ROOM_PLAYER_EXP_DECAY_FLOOR, Math.pow(DUNGEON_SAME_ROOM_PLAYER_EXP_DECAY_BASE, n));
+    return 1;
 }
 
 function dongtianRecordSameRoomPlayerExpBattle() {
-    if (!isDongtianMainDungeonSameRoomDecayActive()) return;
-    dongtianEnsureSameRoomDecayAnchor();
-    var c = Math.max(0, Math.floor(Number(dungeon.progress.sameRoomPlayerExpBattles) || 0));
-    dungeon.progress.sameRoomPlayerExpBattles = c + 1;
+    return;
 }
 
 function peekDongtianSameRoomPlayerExpGain(baseExp) {
@@ -12867,6 +13159,190 @@ function dongtianResetSameRoomPlayerExpDecay() {
     dungeon.progress.sameRoomPlayerExpAnchorRoom = null;
 }
 
+function getNextRoomIgnoreCombatRemaining() {
+    if (!dungeon || !dungeon.settings) return 0;
+    var n = Math.floor(Number(dungeon.settings.nextRoomIgnoreCombatRemaining) || 0);
+    return n > 0 ? n : 0;
+}
+
+function isNextRoomIgnoreCombatQueueActive() {
+    return getNextRoomIgnoreCombatRemaining() > 0;
+}
+
+/** 石门置之不理连战：当前为第几场（1…NEXTROOM_IGNORE_COMBAT_ROUNDS），并入联网遇敌种子以每场随机不同怪 */
+function getNextRoomIgnoreCombatRollSeq() {
+    if (!isNextRoomIgnoreCombatQueueActive()) return 0;
+    var rem = getNextRoomIgnoreCombatRemaining();
+    if (rem <= 0) return 0;
+    return NEXTROOM_IGNORE_COMBAT_ROUNDS - rem + 1;
+}
+
+function bindNextRoomDoorPanelHandlers(atLastRoom) {
+    var c1 = document.querySelector("#choice1");
+    if (!c1) return;
+    c1.onclick = function () {
+        if (dungeon.progress.room == dungeon.progress.roomLimit) {
+            guardianBattle();
+        } else {
+            var eventRoll = randomizeNum(1, 3);
+            if (eventRoll == 1) {
+                incrementRoom();
+                mimicBattle("door");
+                addDungeonLog(pickDeeperFloorLine());
+            } else if (eventRoll == 2) {
+                incrementRoom();
+                var chestChoices =
+                    '<div class="decision-panel">' +
+                    '<button id="choice1">启封遗匣</button>' +
+                    '<button id="choice2">置之不理</button>' +
+                    "</div>";
+                addDungeonLog(
+                    '你步入新劫数，幽光藏宝间中央悬着一口<i class="fa fa-toolbox"></i>灵宝匣。',
+                    chestChoices
+                );
+                var cc1 = document.querySelector("#choice1");
+                var cc2 = document.querySelector("#choice2");
+                if (cc1) {
+                    cc1.onclick = function () {
+                        chestEvent();
+                    };
+                }
+                if (cc2) {
+                    cc2.onclick = function () {
+                        dungeon.action = 0;
+                        ignoreEvent();
+                    };
+                }
+            } else {
+                dungeon.status.event = false;
+                incrementRoom();
+                addDungeonLog("你抵达另一劫数，空无一物。");
+            }
+        }
+    };
+    if (!atLastRoom) {
+        var c2 = document.querySelector("#choice2");
+        if (c2) {
+            c2.onclick = function () {
+                ignoreNextRoomDoorEvent();
+            };
+        }
+    }
+}
+
+/** 洞天石门抉择（踏入裂隙 / 置之不理） */
+function showNextRoomDoorEvent() {
+    if (!dungeon || !dungeon.progress) return;
+    if (isNextRoomIgnoreCombatQueueActive()) return;
+    dungeon.status.event = true;
+    var atLastRoom = dungeon.progress.room == dungeon.progress.roomLimit;
+    var choices;
+    if (atLastRoom) {
+        choices =
+            '<div class="decision-panel decision-panel--boss-door">' +
+            '<button type="button" id="choice1">踏入裂隙</button>' +
+            "</div>";
+    } else {
+        choices =
+            '<div class="decision-panel">' +
+            '<button type="button" id="choice1">踏入裂隙</button>' +
+            '<button type="button" id="choice2">置之不理</button>' +
+            "</div>";
+    }
+    if (atLastRoom) {
+        addDungeonLog('<span class="Heirloom">你窥见通往秘境之主的殿门</span>，唯有踏入一途。', choices);
+    } else {
+        addDungeonLog("一道洞天石门在雾中浮现", choices);
+    }
+    bindNextRoomDoorPanelHandlers(atLastRoom);
+}
+
+/** 胜/遁后推进「置之不理」连战；返回 true 表示已接管后续流程 */
+function completeNextRoomIgnoreCombatRound() {
+    if (!isNextRoomIgnoreCombatQueueActive()) return false;
+    if (!dungeon || !dungeon.settings) return false;
+    var rem = getNextRoomIgnoreCombatRemaining() - 1;
+    dungeon.settings.nextRoomIgnoreCombatRemaining = Math.max(0, rem);
+    dungeon.status.event = false;
+    if (rem > 0) {
+        var done = NEXTROOM_IGNORE_COMBAT_ROUNDS - rem;
+        addDungeonLog(
+            '<span class="Rare">第 ' +
+                done +
+                "/" +
+                NEXTROOM_IGNORE_COMBAT_ROUNDS +
+                ' 场已尽，雾中仍有凶物（余 ' +
+                rem +
+                " 场）。</span>"
+        );
+        setTimeout(function () {
+            if (isNextRoomIgnoreCombatQueueActive()) startNextRoomIgnoreQueuedFight();
+        }, 120);
+    } else {
+        addDungeonLog('<span class="Heirloom">连斩凶物，洞天石门在雾中再度浮现。</span>');
+        setTimeout(function () {
+            showNextRoomDoorEvent();
+        }, 120);
+    }
+    if (typeof saveData === "function") saveData();
+    return true;
+}
+
+/** 洞天石门 · 置之不理：不进下一劫，本劫连战 NEXTROOM_IGNORE_COMBAT_ROUNDS 场后再显石门 */
+function ignoreNextRoomDoorEvent() {
+    if (!dungeon || !dungeon.settings) return;
+    dungeon.status.event = false;
+    dungeon.settings.nextRoomIgnoreCombatRemaining = NEXTROOM_IGNORE_COMBAT_ROUNDS;
+    dungeon.settings.nextRoomIgnoreCombatLootDropped = false;
+    dungeon.settings.nextRoomIgnoreCombatSession =
+        Math.max(0, Math.floor(Number(dungeon.settings.nextRoomIgnoreCombatSession) || 0)) + 1;
+    addDungeonLog(
+        '<span class="Common">你转身离去，未入石门；雾中凶物接连现形，须在本劫连斩 ' +
+            NEXTROOM_IGNORE_COMBAT_ROUNDS +
+            " 场方可再窥石门。</span>"
+    );
+    startNextRoomIgnoreQueuedFight();
+}
+
+function startNextRoomIgnoreQueuedFight() {
+    if (!dungeon) return;
+    if (dungeon._nrIgnoreCombatUiLock) return;
+    dungeon._nrIgnoreCombatUiLock = true;
+    startDungeonEnemyEncounterEvent();
+    setTimeout(function () {
+        dungeon._nrIgnoreCombatUiLock = false;
+    }, 450);
+}
+
+/** 秘境遇敌抉择面板（与主事件池 enemy 分支一致） */
+function startDungeonEnemyEncounterEvent() {
+    dungeon.status.event = true;
+    generateRandomEnemy();
+    var counterBadge = typeof getPreCombatCounterBadgeText === "function" ? getPreCombatCounterBadgeText() : "未知";
+    var fightBtnText = counterBadge ? "拔刃相峙（" + counterBadge + "）" : "拔刃相峙";
+    var choices =
+        '<div class="decision-panel">' +
+        '<button id="choice1">' +
+        fightBtnText +
+        "</button>" +
+        '<button id="choice2">遁入虚空</button>' +
+        "</div>";
+    addDungeonLog(pickEnemyEncounterDungeonLine(), choices);
+    /** 勿在抉择前设 inCombat：否则云存档若在「拔刃/遁逃」界面落盘，读档会误判续斗而直接 startCombat。真正开战由 engageBattle → startCombat 置位。 */
+    var c1 = document.querySelector("#choice1");
+    var c2 = document.querySelector("#choice2");
+    if (c1) {
+        c1.onclick = function () {
+            engageBattle();
+        };
+    }
+    if (c2) {
+        c2.onclick = function () {
+            fleeBattle();
+        };
+    }
+}
+
 // Ignore event and proceed exploring
 const ignoreEvent = () => {
     dungeon.status.event = false;
@@ -12877,13 +13353,37 @@ const ignoreEvent = () => {
     }
 }
 
+/** 联网：秘境事件 saveData 防抖外，关键节点可 forceNow 立即落盘 */
+function persistDungeonCloudSave(forceNow) {
+    if (window.DONGTIAN_CLOUD_MODE && forceNow) {
+        if (typeof window.dongtianCloudPersistRunProgress === "function") {
+            window.dongtianCloudPersistRunProgress();
+            return;
+        }
+        if (typeof window.dongtianFlushCloudSaveImmediate === "function") {
+            window.dongtianFlushCloudSaveImmediate();
+            return;
+        }
+    }
+    if (typeof saveData === "function") saveData();
+}
+
 // Increase room or floor accordingly
 const incrementRoom = () => {
     var _prevFloor = dungeon.progress && typeof dungeon.progress.floor === "number" ? dungeon.progress.floor : 1;
+    var _prevRoom = dungeon.progress && typeof dungeon.progress.room === "number" ? dungeon.progress.room : 1;
     dungeon.progress.room++;
     dungeon.action = 0;
     loadDungeonProgress();
     var _newFloor = dungeon.progress && typeof dungeon.progress.floor === "number" ? dungeon.progress.floor : 1;
+    var _newRoom = dungeon.progress && typeof dungeon.progress.room === "number" ? dungeon.progress.room : 1;
+    if (
+        window.DONGTIAN_CLOUD_MODE &&
+        (_newFloor !== _prevFloor || _newRoom !== _prevRoom) &&
+        typeof window.dongtianCloudPersistRunProgress === "function"
+    ) {
+        window.dongtianCloudPersistRunProgress();
+    }
     if (_newFloor !== _prevFloor && dungeon.settings && typeof dungeon.settings.qingmingChainIntroDoneFloor === "number") {
         if (dungeon.settings.qingmingChainIntroDoneFloor === _prevFloor) {
             dungeon.settings.qingmingChainIntroDoneFloor = 0;

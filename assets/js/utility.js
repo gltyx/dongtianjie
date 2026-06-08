@@ -16,6 +16,17 @@ const nFormatter = (num) => {
     return item ? (num / item.value).toFixed(2).replace(rx, "$1") + item.symbol : "0";
 }
 
+/** 界面数值：≥1000 用 k/M/B/T/P，否则保留小数 */
+function formatCompactNum(val, decimalsSmall) {
+    var n = Number(val);
+    if (!isFinite(n)) return "0";
+    var abs = Math.abs(n);
+    if (abs >= 1000) return (n < 0 ? "-" : "") + nFormatter(abs);
+    var d = decimalsSmall == null ? 2 : decimalsSmall;
+    var rxTrim = /\.0+$|(\.[0-9]*[1-9])0+$/;
+    return n.toFixed(d).replace(rxTrim, "$1");
+}
+
 /** 灵石获取倍率（1 为原版，0.5 为入账减半；仅作用于收入，不影响花费） */
 var PLAYER_GOLD_GAIN_MULT = 0.5;
 

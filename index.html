@@ -19,15 +19,37 @@
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Noto+Sans+SC:wght@400;500;600;700&family=ZCOOL+XiaoWei&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="./assets/css/all.min.css">
     <link rel="stylesheet" href="./assets/css/rpg-awesome.min.css">
-    <link rel="stylesheet" href="./assets/css/style.css?v=dongtian-god-essence-5&b=dongtian-embed-22">
-    <link rel="icon" type="image/png" href="./assets/icon/favicon.png">
+    <link rel="stylesheet" href="./assets/css/style.css" id="dongtianStyleCss">
+    <script>
+        (function () {
+            var build = "dev";
+            var entry = "";
+            try {
+                var qs = location.search || "";
+                var m = /[?&]v=([^&]+)/.exec(qs);
+                if (m && m[1]) build = decodeURIComponent(m[1]);
+                else if (window.parent !== window && window.parent.__goldGameClientBuild) {
+                    build = String(window.parent.__goldGameClientBuild);
+                }
+                var me = /[?&]_entry=([^&]+)/.exec(qs);
+                if (me && me[1]) entry = decodeURIComponent(me[1]);
+            } catch (eB) {}
+            if (!entry) entry = String(Date.now());
+            /** 与 API ?v= 一致，供主游戏比对是否需要热更 */
+            window.__DONGTIAN_SERVER_BUILD = build;
+            /** 每次打开 iframe 的 _entry，拼进 ?b= 避免 build 未改时仍命中浏览器/CDN 旧 JS */
+            window.__DONGTIAN_ASSET_ENTRY = entry;
+            window.__DONGTIAN_ASSET_BUILD = build + "." + entry;
+            var link = document.getElementById("dongtianStyleCss");
+            if (link) link.href = "./assets/css/style.css?b=" + encodeURIComponent(window.__DONGTIAN_ASSET_BUILD);
+        })();
+    </script>
+    <link rel="icon" type="image/png" href="./assets/icon/favicon.ico">
     <title>洞天劫</title>
 </head>
 
 <body>
-<script src="assets/js/dongtian-cloud.js?v=dongtian-embed-22"></script>
-<script src="assets/js/cnkey.js?v=dongtian-embed-22"></script>
-<script src="assets/js/transcore.js?v=dongtian-embed-22"></script>
+<!-- 脚本由 dongtian-asset-boot.js 按 __DONGTIAN_ASSET_BUILD 顺序加载，版本随 API 重启 / URL ?v= 更新 -->
     <main class="app-root">
         <!-- Hub -->
         <section id="dungeon-main" class="game-container scrollable screen screen--hub app-panel">
@@ -71,11 +93,12 @@
                 <section class="hub-layout__run-extra" aria-label="红尘押镖与地脉奇遇">
                     <div class="run-bar__extra-actions" id="runBarExtraActions"></div>
                 </section>
-                <section class="hub-layout__xiu-market" id="xiuMarketBar" aria-label="联网坊市">
+                <section class="hub-layout__xiu-market" id="xiuMarketBar" aria-label="联网坊市" style="display:none;">
                     <div class="xiu-market-actions">
                         <button type="button" id="xiuMarketOpenBtn" class="btn btn--sm btn--ghost xiu-market-open-btn">修仙市场</button>
                         <button type="button" id="wushenArenaOpenBtn" class="btn btn--sm btn--ghost wushen-arena-open-btn" onclick="if(window.__wushenArenaBarClick){window.__wushenArenaBarClick();}return false;">武神坛</button>
                         <button type="button" id="molongHallOpenBtn" class="btn btn--sm btn--ghost molong-hall-open-btn" onclick="if(window.openMolongHallModal){window.openMolongHallModal();}return false;">副本大厅</button>
+                        <button type="button" id="dongtianHubMenuOpenBtn" class="btn btn--sm btn--ghost dongtian-hub-menu-open-btn" onclick="if(window.openDongtianHubMenuModal){window.openDongtianHubMenuModal();}return false;">菜单</button>
                     </div>
                 </section>
 
@@ -123,8 +146,12 @@
                         <h3>行囊→联网版本加群902481027</h3>
                         <p class="modal-sheet__sub">纳遗器灵宝，随念取用</p>
                     </div>
-                    <button type="button" class="icon-btn icon-btn--inv-close" onclick="closeInventory()" title="关闭" aria-label="关闭"><i class="fa fa-xmark"></i></button>
+                    <div class="modal-sheet__head-actions">
+                        <button type="button" class="icon-btn icon-btn--inv-inbox" id="invInboxBtn" onclick="openInvGiftInbox()" title="收件箱" aria-label="收件箱"><i class="fa fa-inbox"></i><span class="inv-inbox-badge" id="invInboxBadge" hidden>0</span></button>
+                        <button type="button" class="icon-btn icon-btn--inv-close" onclick="closeInventory()" title="关闭" aria-label="关闭"><i class="fa fa-xmark"></i></button>
+                    </div>
                 </header>
+                
                 <div class="inv-tabs" role="tablist" aria-label="行囊分页">
                     <button type="button" class="inv-tab inv-tab--active" id="inv-tab-btn-equip" role="tab" aria-selected="true" data-inv-tab="equip">装备</button>
                     <button type="button" class="inv-tab" id="inv-tab-btn-mat" role="tab" aria-selected="false" data-inv-tab="mat">材料</button>
@@ -135,7 +162,7 @@
                     <div class="inv-toolbar__group inv-toolbar__group--sell">
                         <span class="inv-toolbar__label">典让</span>
                         <button type="button" id="sell-all" class="btn btn--sm btn--ghost inv-toolbar__sell">批量典让</button>
-                        <label class="inv-auto-batch" title="开启后，每次获得遗器将按「品阶筛选」自动典让（已锁定除外，无确认弹窗）">
+                        <label class="inv-auto-batch" title="开启后，每次获得遗器将按「品阶筛选」与「等级」范围自动典让（已锁定除外，无确认弹窗）">
                             <input type="checkbox" id="inv-auto-batch-sell" class="inv-auto-batch__input" aria-label="自动批量典让" />
                             <span class="inv-auto-batch__track" aria-hidden="true"></span>
                             <span class="inv-auto-batch__text">自动典让</span>
@@ -157,6 +184,14 @@
                             <option class="Apexother" value="Apexother">劫外道兵</option>
                             <option class="Common" value="All">诸阶尽收</option>
                         </select>
+                    </label>
+                    <label class="inv-toolbar__filter inv-toolbar__filter--lvl">
+                        <span class="inv-toolbar__filter-lbl">等级</span>
+                        <span class="inv-toolbar__lvl-row" title="与修仙市场一致：按遗器修为等级（lvl）筛选；留空表示不限">
+                            <input type="number" id="inv-sell-lvl-min" class="xiu-market-lvl-inp inv-toolbar__lvl-inp" min="1" max="9999" placeholder="最低" inputmode="numeric" aria-label="典让最低等级" />
+                            <span class="xiu-market-lvl-sep">至</span>
+                            <input type="number" id="inv-sell-lvl-max" class="xiu-market-lvl-inp inv-toolbar__lvl-inp" min="1" max="9999" placeholder="最高" inputmode="numeric" aria-label="典让最高等级" />
+                        </span>
                     </label>
                 </div>
                 <div class="inv-toolbar inv-toolbar--view" aria-label="行囊检视">
@@ -188,6 +223,14 @@
                             <option value="Ring">戒指</option>
                             <option value="Necklace">项链</option>
                         </select>
+                    </label>
+                    <label class="inv-toolbar__filter inv-toolbar__filter--lvl">
+                        <span class="inv-toolbar__filter-lbl">检视等级</span>
+                        <span class="inv-toolbar__lvl-row" title="按遗器修为等级（lvl）筛选列表；留空表示不限">
+                            <input type="number" id="inv-view-lvl-min" class="xiu-market-lvl-inp inv-toolbar__lvl-inp" min="1" max="9999" placeholder="最低" inputmode="numeric" aria-label="检视最低等级" />
+                            <span class="xiu-market-lvl-sep">至</span>
+                            <input type="number" id="inv-view-lvl-max" class="xiu-market-lvl-inp inv-toolbar__lvl-inp" min="1" max="9999" placeholder="最高" inputmode="numeric" aria-label="检视最高等级" />
+                        </span>
                     </label>
                 </div>
                 <div class="inv-body">
@@ -314,6 +357,7 @@
                         <option value="equip">遗器</option>
                         <option value="material">材料</option>
                         <option value="pet">灵宠</option>
+                        <option value="pet_equip">灵宠法器</option>
                     </select>
                 </label>
                 <span id="xiuMarketPetFilters" class="xiu-market-pet-filters" hidden aria-label="灵宠筛选">
@@ -336,6 +380,40 @@
                             <option value="10000y">万年</option>
                             <option value="100000y">十万年</option>
                         </select>
+                    </label>
+                </span>
+                <span id="xiuMarketPetEquipFilters" class="xiu-market-pet-equip-filters" hidden aria-label="灵宠法器筛选">
+                    <label class="xiu-market-filter">法器类型
+                        <select id="xiuMarketPeqType">
+                            <option value="">全部</option>
+                            <option value="attack">攻击型</option>
+                            <option value="defense">防御型</option>
+                            <option value="stamina">体力型</option>
+                            <option value="universal">通用型</option>
+                        </select>
+                    </label>
+                    <label class="xiu-market-filter">部位
+                        <select id="xiuMarketPeqSlot">
+                            <option value="">全部</option>
+                            <option value="horn">灵角</option>
+                            <option value="collar">灵环</option>
+                            <option value="scale">灵鳞</option>
+                        </select>
+                    </label>
+                    <label class="xiu-market-filter">品质
+                        <select id="xiuMarketPeqRarity">
+                            <option value="">全部</option>
+                            <option value="common">凡品</option>
+                            <option value="uncommon">灵品</option>
+                            <option value="rare">宝品</option>
+                            <option value="epic">仙品</option>
+                            <option value="legend">神品</option>
+                        </select>
+                    </label>
+                    <label class="xiu-market-filter xiu-market-filter--lvl">等级
+                        <input type="number" id="xiuMarketPeqLvlMin" class="xiu-market-lvl-inp" min="1" max="9999" placeholder="最低" inputmode="numeric" />
+                        <span class="xiu-market-lvl-sep">至</span>
+                        <input type="number" id="xiuMarketPeqLvlMax" class="xiu-market-lvl-inp" min="1" max="9999" placeholder="最高" inputmode="numeric" />
                     </label>
                 </span>
                 <span id="xiuMarketEquipFilters" class="xiu-market-equip-filters" aria-label="遗器筛选">
@@ -402,6 +480,9 @@
                 <div class="xiu-sell-row xiu-sell-row--warn" id="xiuSellPetRow" hidden>
                     <p class="xiu-sell-warn"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i> 确认后该灵宠将从栏中取出并挂单出售。</p>
                 </div>
+                <div class="xiu-sell-row xiu-sell-row--warn" id="xiuSellPetEquipRow" hidden>
+                    <p class="xiu-sell-warn"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i> 确认后该灵宠法器将从法器行囊取出并挂单出售。</p>
+                </div>
                 <div class="xiu-sell-mode" role="group" aria-label="出售方式">
                     <button type="button" class="xiu-sell-mode-btn xiu-sell-mode-btn--active" data-sale-mode="fixed" id="xiuSellModeFixed">固定一口价</button>
                     <button type="button" class="xiu-sell-mode-btn" data-sale-mode="auction" id="xiuSellModeAuction">竞拍</button>
@@ -431,6 +512,57 @@
             <div class="xiu-sell-actions">
                 <button type="button" class="btn btn--sm btn--ghost" id="xiuConfirmCancel">取消</button>
                 <button type="button" class="btn btn--sm btn--primary" id="xiuConfirmOk">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-container modal-container--inv-gift-inbox" id="invGiftInboxModal" style="display: none;" aria-modal="true" role="dialog" aria-labelledby="invGiftInboxTitle">
+        <div class="inv-gift-inbox-sheet">
+            <header class="inv-gift-inbox-head">
+                <div class="inv-gift-inbox-head-text">
+                    <p class="inv-gift-inbox-eyebrow">洞天联网</p>
+                    <h3 class="inv-gift-inbox-title" id="invGiftInboxTitle">馈赠收件箱</h3>
+                    <p class="inv-gift-inbox-cap">待领取 <strong id="invGiftInboxCap">0 / 10</strong></p>
+                </div>
+                <button type="button" class="icon-btn icon-btn--inv-gift-inbox-close" id="invGiftInboxCloseBtn" onclick="closeInvGiftInbox()" title="关闭" aria-label="关闭"><i class="fa fa-xmark"></i></button>
+            </header>
+            <p class="inv-gift-inbox-hint">其他修士赠送的物品会暂存于此，点击「领取」后写入行囊（最多可存放 10 件）。</p>
+            <div class="inv-gift-inbox-body">
+                <div class="inv-gift-inbox-empty" id="invGiftInboxEmpty" hidden>暂无待领取馈赠</div>
+                <ul class="inv-gift-inbox-list" id="invGiftInboxList" aria-live="polite"></ul>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-container modal-container--xiu-sell" id="xiuMarketGiftModal" style="display: none;" aria-modal="true" role="dialog" aria-labelledby="xiuGiftTitle">
+        <div class="xiu-sell-sheet">
+            <header class="xiu-sell-head">
+                <p class="xiu-sell-eyebrow">洞天坊市</p>
+                <h3 class="xiu-sell-title" id="xiuGiftTitle">赠送物品</h3>
+                <p class="xiu-sell-hint" id="xiuGiftHint"></p>
+            </header>
+            <div class="xiu-sell-body">
+                <div class="xiu-sell-row" id="xiuGiftMatRow" hidden>
+                    <label class="xiu-sell-label" for="xiuGiftMatQty">赠送数量</label>
+                    <input type="number" class="xiu-sell-input" id="xiuGiftMatQty" min="1" step="1" value="1" />
+                    <p class="xiu-sell-muted" id="xiuGiftMatCap"></p>
+                </div>
+                <div class="xiu-sell-row xiu-sell-row--warn" id="xiuGiftPetRow" hidden>
+                    <p class="xiu-sell-warn"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i> 确认后该灵宠将送入对方行囊收件箱（对方领取时灵宠栏未满方可成功）。</p>
+                </div>
+                <div class="xiu-sell-row xiu-sell-row--warn" id="xiuGiftPetEquipRow" hidden>
+                    <p class="xiu-sell-warn"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i> 确认后该灵宠法器将送入对方行囊收件箱（对方领取时法器行囊未满方可成功）。</p>
+                </div>
+                <div class="xiu-sell-row">
+                    <label class="xiu-sell-label" for="xiuGiftTargetPid">对方灵网身份（ID）</label>
+                    <input type="number" class="xiu-sell-input" id="xiuGiftTargetPid" min="1" max="10000" step="1" placeholder="1–10000" inputmode="numeric" autocomplete="off" />
+                </div>
+                <p class="xiu-sell-muted">将消耗 <strong>5</strong> 联网币（从当前账号扣除；对方无需支付）。</p>
+                <p class="xiu-sell-err" id="xiuGiftErr" role="alert"></p>
+            </div>
+            <div class="xiu-sell-actions">
+                <button type="button" class="btn btn--sm btn--ghost" id="xiuGiftCancel">取消</button>
+                <button type="button" class="btn btn--sm btn--primary" id="xiuGiftSubmit">确认赠送</button>
             </div>
         </div>
     </div>
@@ -490,6 +622,7 @@
                     <p class="wushen-arena-sub" id="molongMeta">加载中…</p>
                 </div>
                 <div class="wushen-arena-head-actions">
+                    <button type="button" class="btn btn--sm btn--accent molong-assist-shop-open-btn" id="molongAssistShopOpenBtn">助战商店</button>
                     <button type="button" class="btn btn--sm btn--ghost" id="molongHallCloseBtn">关闭</button>
                 </div>
             </header>
@@ -549,30 +682,913 @@
         </div>
     </div>
 
-    <script src="./assets/js/utility.js?v=dongtian-atkspd-mult-3&b=dongtian-embed-22"></script>
-    <script src="./assets/js/sect-passives.js?v=dongtian-passive-5&b=dongtian-embed-22"></script>
-    <script src="./assets/js/xiuxian.js?v=dongtian-embed-22"></script>
-    <script src="./assets/js/elements.js?v=dongtian-embed-22"></script>
-    <script src="./assets/js/pet.js?v=dongtian-pet-release-confirm-5&b=dongtian-embed-22"></script>
-    <script src="./assets/js/player.js?v=dongtian-embed-22"></script>
-    <script src="./assets/js/weapon-names-xiuxian.js?v=dongtian-embed-22"></script>
-    <script src="./assets/js/enhancement.js?v=dongtian-god-essence-7&b=dongtian-embed-22"></script>
-    <script src="./assets/js/gems.js?v=dongtian-embed-22"></script>
-    <script src="./assets/js/equipment.js?v=dongtian-god-essence-7&b=dongtian-embed-22"></script>
-    <script src="./assets/js/combat.js?v=dongtian-combat-tick-504&b=dongtian-embed-22"></script>
-    <script src="./assets/js/titles.js?v=dongtian-embed-22"></script>
-    <script src="./assets/js/dungeon.js?v=dongtian-embed-22&monsterMin=sp-online-same"></script>
-    <script src="./assets/js/enemy-affixes.js?v=dongtian-embed-22"></script>
-    <script src="./assets/js/enemy.js?v=dongtian-embed-22"></script>
-    <script src="./assets/js/main.js?v=dongtian-embed-22"></script>
-    <script src="./assets/js/xiu-market.js?v=dongtian-embed-22"></script>
-    <script src="./assets/js/wushen-arena.js?v=dongtian-embed-22"></script>
-    <script src="./assets/js/dongtian-molong.js?v=dongtian-embed-22"></script>
-<!--客服 开始-->
+    <div class="modal-container modal-container--molong-assist-shop" id="molongAssistShopModal" style="display:none;" aria-modal="true" role="dialog" aria-label="助战商店">
+        <div class="molong-assist-shop-sheet">
+            <div class="molong-assist-shop-bg" aria-hidden="true"></div>
+            <header class="molong-assist-shop-head">
+                <div class="molong-assist-shop-head-text">
+                    <p class="molong-assist-shop-eyebrow">洞天联网 · 善缘录</p>
+                    <h3 class="molong-assist-shop-title">助战商店</h3>
+                    <p class="molong-assist-shop-sub">助人通关副本大厅，积助战值可换灵材。助战成功每次 <strong>+1</strong> 助战值；每周期（北京时间每日 12:01 起）至多通过助战获得 <strong>100</strong> 点，助战值可累积兑换。</p>
+                </div>
+                <div class="molong-assist-shop-head-actions">
+                    <div class="molong-assist-shop-balance" title="当前助战值">
+                        <span class="molong-assist-shop-balance-label">助战值</span>
+                        <span class="molong-assist-shop-balance-num" id="molongAssistShopBalance">0</span>
+                    </div>
+                    <button type="button" class="btn btn--sm btn--ghost" id="molongAssistShopBatchToggleBtn">批量兑换</button>
+                    <button type="button" class="btn btn--sm btn--ghost" id="molongAssistShopCloseBtn">关闭</button>
+                </div>
+            </header>
+            <div class="molong-assist-shop-body">
+                <p class="molong-assist-shop-hint" id="molongAssistShopEarnHint"></p>
+                <div class="molong-assist-shop-batch-toolbar" id="molongAssistShopBatchToolbar" style="display:none;" aria-hidden="true">
+                    <p class="molong-assist-shop-batch-tip">填写每种商品的「份数」（每份 = 单次兑换的一组）。确认后一次性扣助战值并发货。</p>
+                    <div class="molong-assist-shop-batch-actions">
+                        <span class="molong-assist-shop-batch-sum" id="molongAssistShopBatchSum">合计消耗 0 助战值</span>
+                        <button type="button" class="btn btn--sm btn--accent" id="molongAssistShopBatchSubmitBtn">确认批量兑换</button>
+                        <button type="button" class="btn btn--sm btn--ghost" id="molongAssistShopBatchCancelBtn">退出批量</button>
+                    </div>
+                </div>
+                <div class="molong-assist-shop-grid" id="molongAssistShopGrid"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-container modal-container--hub-menu" id="dongtianHubMenuModal" style="display:none;" aria-modal="true" role="dialog" aria-label="洞天菜单">
+        <div class="wushen-arena-sheet dongtian-hub-menu-sheet">
+            <header class="wushen-arena-head dongtian-hub-menu-head">
+                <div>
+                    <p class="wushen-arena-eyebrow dongtian-hub-menu-eyebrow">洞天单机</p>
+                    <h3 class="wushen-arena-title dongtian-hub-menu-title">仙府玉牒</h3>
+                    <p class="wushen-arena-sub dongtian-hub-menu-sub">一念开阁，万法自来</p>
+                </div>
+                <div class="wushen-arena-head-actions">
+                    <button type="button" class="btn btn--sm btn--ghost" id="dongtianHubMenuCloseBtn">关闭</button>
+                </div>
+            </header>
+            <div class="dongtian-hub-menu-tabs" role="tablist" aria-label="洞天菜单分类">
+                <button type="button" role="tab" id="dongtianHubMenuTabFeatures" class="dongtian-hub-menu-tab dongtian-hub-menu-tab--active" data-hub-tab="0" aria-selected="true" aria-controls="dongtianHubMenuPanelFeatures">功能</button>
+                <button type="button" role="tab" id="dongtianHubMenuTabDungeons" class="dongtian-hub-menu-tab" data-hub-tab="1" aria-selected="false" aria-controls="dongtianHubMenuPanelDungeons" tabindex="-1">副本</button>
+                <button type="button" role="tab" id="dongtianHubMenuTabCasual" class="dongtian-hub-menu-tab" data-hub-tab="2" aria-selected="false" aria-controls="dongtianHubMenuPanelCasual" tabindex="-1">休闲</button>
+            </div>
+            <div class="dongtian-hub-menu-tabpanels">
+                <div id="dongtianHubMenuPanelFeatures" class="dongtian-hub-menu-panel dongtian-hub-menu-panel--active" role="tabpanel" aria-labelledby="dongtianHubMenuTabFeatures" aria-hidden="false">
+                    <div class="dongtian-hub-menu-grid" role="navigation" aria-label="洞天功能">
+                        <button type="button" class="dongtian-hub-menu-card dongtian-hub-menu-card--shitu" id="dongtianHubMenuShituBtn">
+                            <span class="dongtian-hub-menu-card__glyph" aria-hidden="true">师</span>
+                            <span class="dongtian-hub-menu-card__name">师徒</span>
+                            <span class="dongtian-hub-menu-card__hint">传道 · 授业</span>
+                        </button>
+                        <button type="button" class="dongtian-hub-menu-card dongtian-hub-menu-card--zongmen" id="dongtianHubMenuZongmenBtn">
+                            <span class="dongtian-hub-menu-card__glyph" aria-hidden="true">宗</span>
+                            <span class="dongtian-hub-menu-card__name">联网宗门</span>
+                            <span class="dongtian-hub-menu-card__hint">开宗 · 聚仙</span>
+                        </button>
+                        <button type="button" class="dongtian-hub-menu-card dongtian-hub-menu-card--lingtian" id="dongtianHubMenuLingtianBtn">
+                            <span class="dongtian-hub-menu-card__glyph" aria-hidden="true">田</span>
+                            <span class="dongtian-hub-menu-card__name">灵田药园</span>
+                            <span class="dongtian-hub-menu-card__hint">种药 · 采灵</span>
+                        </button>
+                        <button type="button" class="dongtian-hub-menu-card dongtian-hub-menu-card--alchemy" id="dongtianHubMenuAlchemyBtn">
+                            <span class="dongtian-hub-menu-card__glyph" aria-hidden="true">丹</span>
+                            <span class="dongtian-hub-menu-card__name">炼丹阁</span>
+                            <span class="dongtian-hub-menu-card__hint">丙丁 · 化灵</span>
+                        </button>
+                        <button type="button" class="dongtian-hub-menu-card dongtian-hub-menu-card--forge" id="dongtianHubMenuForgeBtn">
+                            <span class="dongtian-hub-menu-card__glyph" aria-hidden="true">锤</span>
+                            <span class="dongtian-hub-menu-card__name">神锻阁</span>
+                            <span class="dongtian-hub-menu-card__hint">铸纹 · 入器</span>
+                        </button>
+                        <button type="button" class="dongtian-hub-menu-card dongtian-hub-menu-card--yuqi" id="dongtianHubMenuYuqiBtn">
+                            <span class="dongtian-hub-menu-card__glyph" aria-hidden="true">器</span>
+                            <span class="dongtian-hub-menu-card__name">御器</span>
+                            <span class="dongtian-hub-menu-card__hint">劫纹 · 蕴灵</span>
+                        </button>
+                        <button type="button" class="dongtian-hub-menu-card dongtian-hub-menu-card--lgxm" id="dongtianHubMenuLgxmBtn">
+                            <span class="dongtian-hub-menu-card__glyph" aria-hidden="true">根</span>
+                            <span class="dongtian-hub-menu-card__name">灵根血脉</span>
+                            <span class="dongtian-hub-menu-card__hint">先天 · 造化</span>
+                        </button>
+                        <button type="button" class="dongtian-hub-menu-card dongtian-hub-menu-card--treasure" id="dongtianHubMenuTreasureMapBtn">
+                            <span class="dongtian-hub-menu-card__glyph" aria-hidden="true">图</span>
+                            <span class="dongtian-hub-menu-card__name">藏宝图</span>
+                            <span class="dongtian-hub-menu-card__hint">秘卷 · 夺宝</span>
+                        </button>
+                    </div>
+                </div>
+                <div id="dongtianHubMenuPanelDungeons" class="dongtian-hub-menu-panel" role="tabpanel" aria-labelledby="dongtianHubMenuTabDungeons" aria-hidden="true">
+                    <div class="dongtian-hub-menu-grid dongtian-hub-menu-grid--dungeons" role="navigation" aria-label="洞天副本">
+                        <button type="button" class="dongtian-hub-menu-card dongtian-hub-menu-card--dragon" id="dongtianHubMenuDragonTowerBtn">
+                            <span class="dongtian-hub-menu-card__glyph" aria-hidden="true">龍</span>
+                            <span class="dongtian-hub-menu-card__name">登龙塔</span>
+                            <span class="dongtian-hub-menu-card__hint">劫气 · 登阶</span>
+                        </button>
+                        <button type="button" class="dongtian-hub-menu-card dongtian-hub-menu-card--demon" id="dongtianHubMenuDemonTowerBtn">
+                            <span class="dongtian-hub-menu-card__glyph" aria-hidden="true">煞</span>
+                            <span class="dongtian-hub-menu-card__name">魔神塔</span>
+                            <span class="dongtian-hub-menu-card__hint">镇魔 · 试心</span>
+                        </button>
+                        <button type="button" class="dongtian-hub-menu-card dongtian-hub-menu-card--divine" id="dongtianHubMenuDivineRealmBtn">
+                            <span class="dongtian-hub-menu-card__glyph" aria-hidden="true">界</span>
+                            <span class="dongtian-hub-menu-card__name">神界</span>
+                            <span class="dongtian-hub-menu-card__hint">天门 · 叩仙</span>
+                        </button>
+                        <button type="button" class="dongtian-hub-menu-card dongtian-hub-menu-card--spirit-beast" id="dongtianHubMenuSpiritBeastBtn">
+                            <span class="dongtian-hub-menu-card__glyph" aria-hidden="true">兽</span>
+                            <span class="dongtian-hub-menu-card__name">灵兽界</span>
+                            <span class="dongtian-hub-menu-card__hint">兽域 · 叩灵</span>
+                        </button>
+                        <button type="button" class="dongtian-hub-menu-card dongtian-hub-menu-card--ghost" id="dongtianHubMenuGhostRealmBtn">
+                            <span class="dongtian-hub-menu-card__glyph" aria-hidden="true">魂</span>
+                            <span class="dongtian-hub-menu-card__name">幽魂界</span>
+                            <span class="dongtian-hub-menu-card__hint">魂气 · 叩冥</span>
+                        </button>
+                    </div>
+                </div>
+                <div id="dongtianHubMenuPanelCasual" class="dongtian-hub-menu-panel" role="tabpanel" aria-labelledby="dongtianHubMenuTabCasual" aria-hidden="true">
+                    <div class="dongtian-hub-menu-grid dongtian-hub-menu-grid--casual" role="navigation" aria-label="洞天休闲">
+                        <button type="button" class="dongtian-hub-menu-card dongtian-hub-menu-card--word" id="dongtianHubMenuWordGuessBtn">
+                            <span class="dongtian-hub-menu-card__glyph" aria-hidden="true">谜</span>
+                            <span class="dongtian-hub-menu-card__name">每日猜词</span>
+                            <span class="dongtian-hub-menu-card__hint">天机 · 一字</span>
+                        </button>
+                        <button type="button" class="dongtian-hub-menu-card dongtian-hub-menu-card--yunyou" id="dongtianHubMenuSwordSpiritBtn">
+                            <span class="dongtian-hub-menu-card__glyph" aria-hidden="true">游</span>
+                            <span class="dongtian-hub-menu-card__name">剑灵云游</span>
+                            <span class="dongtian-hub-menu-card__hint">剑意 · 浮生</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-container modal-container--treasure-map" id="dongtianTreasureMapModal" style="display:none;" aria-modal="true" role="dialog" aria-label="藏宝图">
+        <div class="dt-treasure-sheet">
+            <header class="dt-treasure-head">
+                <div class="dt-treasure-head__brand">
+                    <p class="dt-treasure-eyebrow">秘卷寻踪 · 匣中乾坤</p>
+                    <h3 class="dt-treasure-title">洞天藏宝图</h3>
+                    <p class="dt-treasure-sub">启图斩煞，遗器必落；层数愈深，宝光愈炽</p>
+                </div>
+                <button type="button" class="btn btn--sm btn--ghost" id="dongtianTreasureMapCloseBtn">关闭</button>
+            </header>
+            <div class="dt-treasure-body">
+                <aside class="dt-treasure-aside">
+                    <section class="dt-treasure-panel dt-treasure-panel--legend">
+                        <h4>五卷品阶</h4>
+                        <ul class="dt-treasure-quality-list" id="dtTreasureQualityLegend"></ul>
+                    </section>
+                    <section class="dt-treasure-panel dt-treasure-panel--rules">
+                        <h4>启图须知</h4>
+                        <div id="dtTreasureRulesContent">
+                            <p>一层图对应秘境一层属性。</p>
+                            <p>挑战成功 <strong>100%</strong> 随机遗器，品阶依图卷品质而定。</p>
+                        </div>
+                    </section>
+                </aside>
+                <main class="dt-treasure-main">
+                    <div class="dt-treasure-toolbar">
+                        <div class="dt-treasure-toolbar__left">
+                            <span class="dt-treasure-count">匣中：<strong id="dtTreasureMapCount">0</strong> / 200</span>
+                            <span class="dt-treasure-filter-hint" id="dtTreasureFilterHint">显示全部</span>
+                        </div>
+                        <div class="dt-treasure-toolbar__right">
+                            <button type="button" class="btn btn--sm btn--ghost dt-treasure-discard-tier-btn" id="dtTreasureDiscardTierBtn" style="display:none;" title="丢弃当前品阶筛选下的全部藏宝图">丢弃本阶</button>
+                            <button type="button" class="btn btn--sm btn--ghost" id="dtTreasureBatchModeBtn">批量选择</button>
+                            <button type="button" class="btn btn--sm btn--primary" id="dtTreasureMapRefreshBtn">刷新匣册</button>
+                        </div>
+                    </div>
+                    <div class="dt-treasure-batch-bar" id="dtTreasureBatchBar" style="display:none;" aria-label="批量丢弃操作">
+                        <button type="button" class="btn btn--sm btn--ghost" id="dtTreasureSelectAllBtn">全选当前</button>
+                        <button type="button" class="btn btn--sm btn--ghost" id="dtTreasureSelectNoneBtn">清空勾选</button>
+                        <span class="dt-treasure-batch-count" id="dtTreasureBatchCount">已选 0 张</span>
+                        <button type="button" class="btn btn--sm dt-treasure-batch-discard-btn" id="dtTreasureBatchDiscardBtn" disabled>丢弃所选</button>
+                    </div>
+                    <div class="dt-treasure-filter" id="dtTreasureFilterBar" role="tablist" aria-label="按品阶筛选">
+                        <button type="button" class="dt-treasure-filter__chip is-active" data-filter="all" role="tab" aria-selected="true">全部</button>
+                    </div>
+                    <div class="dt-treasure-scroll" id="dtTreasureMapList" role="list" aria-label="藏宝图列表">
+                        <p class="dt-treasure-empty" id="dtTreasureMapEmptyHint">匣中空无一图。</p>
+                    </div>
+                </main>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-container modal-container--dt-discard-confirm" id="dtTreasureDiscardConfirmModal" style="display:none;" aria-modal="true" role="alertdialog" aria-labelledby="dtDiscardConfirmTitle" aria-describedby="dtDiscardConfirmDesc">
+        <div class="dt-discard-confirm-sheet">
+            <header class="dt-discard-confirm-head">
+                <p class="dt-discard-confirm-eyebrow">匣册处置</p>
+                <h4 class="dt-discard-confirm-title" id="dtDiscardConfirmTitle">确认丢弃藏宝图</h4>
+            </header>
+            <div class="dt-discard-confirm-preview" id="dtDiscardConfirmPreview" aria-hidden="false"></div>
+            <p class="dt-discard-confirm-desc" id="dtDiscardConfirmDesc">丢弃后不可恢复，秘卷将永散于劫尘。</p>
+            <div class="dt-discard-confirm-actions">
+                <button type="button" class="btn btn--sm btn--ghost" id="dtTreasureDiscardCancelBtn">取消</button>
+                <button type="button" class="btn btn--sm dt-discard-confirm-ok" id="dtTreasureDiscardOkBtn">确认丢弃</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-container modal-container--dragon-tower" id="dongtianDragonTowerModal" style="display:none;" aria-modal="true" role="dialog" aria-label="登龙塔">
+        <div class="wushen-arena-sheet dongtian-dragon-tower-sheet">
+            <header class="wushen-arena-head dongtian-dragon-tower-head">
+                <div>
+                    <p class="wushen-arena-eyebrow dongtian-dragon-tower-eyebrow">洞天联网</p>
+                    <h3 class="wushen-arena-title dongtian-dragon-tower-title">登龙塔</h3>
+                    <p class="wushen-arena-sub">劫气凝形，层层递进；塔规所限，机缘亦险。</p>
+                </div>
+                <div class="wushen-arena-head-actions">
+                    <button type="button" class="btn btn--sm btn--ghost" id="dtDragonTowerRefreshBtn">刷新</button>
+                    <button type="button" class="btn btn--sm btn--ghost" id="dongtianDragonTowerCloseBtn">关闭</button>
+                </div>
+            </header>
+            <div class="wushen-arena-body dongtian-dragon-tower-body">
+                <div class="dt-dragon-hero" aria-hidden="true">
+                    <div class="dt-dragon-hero__glow"></div>
+                    <div class="dt-dragon-hero__pillar"></div>
+                    <div class="dt-dragon-hero__sigil">龍</div>
+                </div>
+                <section class="wushen-arena-card dt-dragon-card">
+                    <h4 class="wushen-arena-card-title">塔规摘要</h4>
+                    <ul class="dt-dragon-rules">
+                        <li>层数<strong>无上限</strong>；每 10 层为一重秘境，<strong>第 9n+10 层</strong>为劫主。</li>
+                        <li>守劫者等同「秘境第 X 层 · 劫 19 或 20 · 敌势 2.08」，血量按层倍率强化；<strong>自带 60% 闪避</strong>。</li>
+                        <li>塔内<strong>吸血至多按 10%</strong>结算；<strong>身法机缘加成至多按 30%</strong>计入。</li>
+                        <li>每通关一层：<strong>永久</strong>气血 +3%、护体 +2%、力道 +2%（与套装等同类加算）。</li>
+                    </ul>
+                </section>
+                <section class="wushen-arena-card">
+                    <p class="wushen-arena-muted" id="dtDragonTowerStatusLine">龙塔感应中…</p>
+                    <p class="dt-dragon-actions">
+                        <button type="button" class="btn btn--primary" id="dtDragonTowerChallengeBtn">挑战</button>
+                    </p>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-container modal-container--demon-tower" id="dongtianDemonTowerModal" style="display:none;" aria-modal="true" role="dialog" aria-label="魔神塔">
+        <div class="wushen-arena-sheet dongtian-demon-tower-sheet">
+            <header class="wushen-arena-head dongtian-demon-tower-head">
+                <div>
+                    <p class="wushen-arena-eyebrow dongtian-demon-tower-eyebrow">洞天联网 · 魔道试炼</p>
+                    <h3 class="wushen-arena-title dongtian-demon-tower-title">恶魔高塔</h3>
+                    <p class="wushen-arena-sub dongtian-demon-tower-sub">九幽裂隙，层层镇魔；劫煞与仙机相搏，机缘与殒道同悬。</p>
+                </div>
+                <div class="wushen-arena-head-actions">
+                    <button type="button" class="btn btn--sm btn--ghost" id="dtDemonTowerRefreshBtn">刷新</button>
+                    <button type="button" class="btn btn--sm btn--ghost" id="dongtianDemonTowerCloseBtn">关闭</button>
+                </div>
+            </header>
+            <div class="wushen-arena-body dongtian-demon-tower-body">
+                <div class="dt-demon-hero" aria-hidden="true">
+                    <div class="dt-demon-hero__mist"></div>
+                    <div class="dt-demon-hero__spire"></div>
+                    <div class="dt-demon-hero__sigils">
+                        <span class="dt-demon-hero__rune">煞</span>
+                        <span class="dt-demon-hero__rune dt-demon-hero__rune--2">劫</span>
+                        <span class="dt-demon-hero__rune dt-demon-hero__rune--3">魔</span>
+                    </div>
+                </div>
+                <section class="wushen-arena-card dt-demon-card">
+                    <h4 class="wushen-arena-card-title">塔规与机缘</h4>
+                    <ul class="dt-demon-rules">
+                        <li>层数<strong>无上限</strong>；第 <strong>L</strong> 层守关等同「秘境第 <strong>L+2</strong> 层 · 劫 <strong>20</strong> · 敌势 <strong>3.08</strong>」主宰，属性<strong>固定无掷骰</strong>；血量在主宰模板基础上再乘 <strong>(1+0.5×(L+1))</strong>（第 1 层即 ×2，第 2 层 ×2.5，以此类推）。</li>
+                        <li>守将<strong>固定 10% 闪避</strong>；每次闪避回复自身<strong>10% 气血上限</strong>。</li>
+                        <li>塔内<strong>吸血与身法机缘各自至多按 1%</strong> 计入斗法。</li>
+                        <li>每通关一层永久：<strong>气血 +10%、护体 +5%、力道 +5%</strong>；灵宠从击杀修为分流获得的修为<strong>永久 +5%</strong>（与同类加算）。</li>
+                    </ul>
+                </section>
+                <section class="wushen-arena-card dt-demon-card dt-demon-card--cta">
+                    <p class="wushen-arena-muted" id="dtDemonTowerStatusLine">魔塔感应中…</p>
+                    <p class="dt-demon-actions">
+                        <button type="button" class="btn btn--primary dt-demon-challenge" id="dtDemonTowerChallengeBtn">挑战</button>
+                    </p>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-container modal-container--divine-realm" id="dongtianDivineRealmModal" style="display:none;" aria-modal="true" role="dialog" aria-label="神界">
+        <div class="wushen-arena-sheet dongtian-divine-realm-sheet">
+            <header class="wushen-arena-head dongtian-divine-realm-head">
+                <div>
+                    <p class="wushen-arena-eyebrow dongtian-divine-realm-eyebrow">洞天联网 · 九霄天门</p>
+                    <h3 class="wushen-arena-title dongtian-divine-realm-title">神界</h3>
+                    <p class="wushen-arena-sub dongtian-divine-realm-sub">云阙之上，仙律为阶；一层一重天，机缘与劫罚同悬。</p>
+                </div>
+                <div class="wushen-arena-head-actions">
+                    <button type="button" class="btn btn--sm btn--ghost" id="dtDivineRealmRefreshBtn">刷新</button>
+                    <button type="button" class="btn btn--sm btn--ghost" id="dongtianDivineRealmCloseBtn">关闭</button>
+                </div>
+            </header>
+            <div class="wushen-arena-body dongtian-divine-realm-body">
+                <div class="dt-divine-hero" aria-hidden="true">
+                    <div class="dt-divine-hero__aurora"></div>
+                    <div class="dt-divine-hero__clouds"></div>
+                    <div class="dt-divine-hero__gate"></div>
+                    <div class="dt-divine-hero__petals">
+                        <span></span><span></span><span></span><span></span><span></span>
+                    </div>
+                    <div class="dt-divine-hero__sigil">仙</div>
+                </div>
+                <section class="wushen-arena-card dt-divine-card">
+                    <h4 class="wushen-arena-card-title">天规与机缘</h4>
+                    <ul class="dt-divine-rules">
+                        <li>层数<strong>无上限</strong>；第 <strong>L</strong> 层守关等同「秘境第 <strong>L×3</strong> 层 · 劫 <strong>20</strong> · 敌势 <strong>4.08</strong>」劫主，属性<strong>固定无掷骰</strong>；血量再乘 <strong>(1+0.5×(L+1))</strong>（第 1 层 ×2，第 2 层 ×2.5，以此类推）。</li>
+                        <li>守将<strong>固定 10% 闪避</strong>；闪避时回复自身<strong>10% 气血上限</strong>；攻击有 <strong>10%</strong> 概率<strong>击晕你 1 秒</strong>。</li>
+                        <li>神界内<strong>吸血机缘至多按 0.001%</strong>、<strong>身法机缘至多按 0.1%</strong> 计入斗法。</li>
+                        <li>每通关一层永久：<strong>气血 +40%、护体 +20%、力道 +20%</strong>；灵宠击杀修为分流<strong>永久 +10%</strong>；<strong>神锻真力 +5</strong>（与龙塔/魔神塔同类加算）。</li>
+                    </ul>
+                </section>
+                <section class="wushen-arena-card dt-divine-card dt-divine-card--cta">
+                    <p class="wushen-arena-muted" id="dtDivineRealmStatusLine">天门感应中…</p>
+                    <p class="dt-divine-actions">
+                        <button type="button" class="btn btn--primary dt-divine-challenge" id="dtDivineRealmChallengeBtn">叩天门</button>
+                    </p>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-container modal-container--spirit-beast-realm" id="dongtianSpiritBeastRealmModal" style="display:none;" aria-modal="true" role="dialog" aria-label="灵兽界">
+        <div class="wushen-arena-sheet dongtian-spirit-beast-sheet">
+            <header class="wushen-arena-head dongtian-spirit-beast-head">
+                <div>
+                    <p class="wushen-arena-eyebrow dongtian-spirit-beast-eyebrow">洞天联网 · 万兽灵域</p>
+                    <h3 class="wushen-arena-title dongtian-spirit-beast-title">灵兽界</h3>
+                    <p class="wushen-arena-sub dongtian-spirit-beast-sub">灵息浩渺，兽纹为阶；一层一重域，机缘与劫罚同悬。</p>
+                </div>
+                <div class="wushen-arena-head-actions">
+                    <button type="button" class="btn btn--sm btn--ghost" id="dtSpiritBeastRefreshBtn">刷新</button>
+                    <button type="button" class="btn btn--sm btn--ghost" id="dongtianSpiritBeastCloseBtn">关闭</button>
+                </div>
+            </header>
+            <div class="wushen-arena-body dongtian-spirit-beast-body">
+                <div class="dt-sbr-hero" aria-hidden="true">
+                    <div class="dt-sbr-hero__mist"></div>
+                    <div class="dt-sbr-hero__orbs">
+                        <span></span><span></span><span></span><span></span><span></span><span></span>
+                    </div>
+                    <div class="dt-sbr-hero__ring"></div>
+                    <div class="dt-sbr-hero__sigil">兽</div>
+                </div>
+                <section class="wushen-arena-card dt-sbr-card">
+                    <h4 class="wushen-arena-card-title">兽域天规与机缘</h4>
+                    <ul class="dt-sbr-rules">
+                        <li>层数<strong>无上限</strong>；第 <strong>L</strong> 层守关等同「秘境第 <strong>L×2</strong> 层 · 劫 <strong>20</strong> · 敌势 <strong>5.08</strong>」劫主，属性<strong>固定无掷骰</strong>；血量再乘 <strong>L+1</strong>（第 1 层 ×2，第 2 层 ×3，以此类推）。</li>
+                        <li>守兽<strong>固定 20% 闪避</strong>；每次闪避回复自身<strong>10% 气血上限</strong>；攻击有 <strong>10%</strong> 概率<strong>击晕你 1 秒</strong>。</li>
+                        <li>兽域内<strong>吸血机缘至多按 0.001%</strong>、<strong>身法机缘至多按 0.01%</strong> 计入斗法。</li>
+                        <li>每通关一层永久：<strong>气血 +40%、护体 +20%、力道 +20%</strong>；灵宠击杀修为分流<strong>永久 +10%</strong>；灵宠法器总加成<strong>永久 +10%</strong>；<strong>神锻真力 +5</strong>（与龙塔/魔神塔/神界同类加算）。</li>
+                    </ul>
+                </section>
+                <section class="wushen-arena-card dt-sbr-card dt-sbr-card--cta">
+                    <p class="wushen-arena-muted" id="dtSpiritBeastStatusLine">兽域感应中…</p>
+                    <p class="dt-sbr-actions">
+                        <button type="button" class="btn btn--primary dt-sbr-challenge" id="dtSpiritBeastChallengeBtn">叩兽域</button>
+                    </p>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-container modal-container--ghost-realm" id="dongtianGhostRealmModal" style="display:none;" aria-modal="true" role="dialog" aria-label="幽魂界">
+        <div class="wushen-arena-sheet dongtian-ghost-realm-sheet">
+            <header class="wushen-arena-head dongtian-ghost-realm-head">
+                <div>
+                    <p class="wushen-arena-eyebrow dongtian-ghost-realm-eyebrow">洞天联网 · 九幽冥境</p>
+                    <h3 class="wushen-arena-title dongtian-ghost-realm-title">幽魂界</h3>
+                    <p class="wushen-arena-sub dongtian-ghost-realm-sub">魂气浩渺，魄纹为阶；一层一重冥，机缘与劫罚同悬。</p>
+                </div>
+                <div class="wushen-arena-head-actions">
+                    <button type="button" class="btn btn--sm btn--ghost" id="dtGhostRealmRefreshBtn">刷新</button>
+                    <button type="button" class="btn btn--sm btn--ghost" id="dongtianGhostRealmCloseBtn">关闭</button>
+                </div>
+            </header>
+            <div class="wushen-arena-body dongtian-ghost-realm-body">
+                <div class="dt-ghost-hero" aria-hidden="true">
+                    <div class="dt-ghost-hero__mist"></div>
+                    <div class="dt-ghost-hero__wisps">
+                        <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+                    </div>
+                    <div class="dt-ghost-hero__ring"></div>
+                    <div class="dt-ghost-hero__sigil">魂</div>
+                </div>
+                <section class="wushen-arena-card dt-ghost-card">
+                    <h4 class="wushen-arena-card-title">魂规与机缘</h4>
+                    <ul class="dt-ghost-rules">
+                        <li>层数<strong>无上限</strong>；第 <strong>L</strong> 层守关等同「秘境第 <strong>L</strong> 层 · 劫 <strong>20</strong> · 敌势 <strong>2.08</strong>」劫主，属性<strong>固定无掷骰</strong>；血量再乘 <strong>L×3</strong>（第 1 层 ×3，第 2 层 ×6，以此类推）。</li>
+                        <li>幽魂<strong>固定 20% 闪避</strong>；每次闪避回复自身<strong>10% 气血上限</strong>；<strong>免疫你 80% 伤害</strong>；攻击有 <strong>20%</strong> 概率<strong>击晕你 1 秒</strong>。</li>
+                        <li>幽魂界内<strong>吸血机缘至多按 0.001%</strong>、<strong>身法机缘至多按 0.01%</strong> 计入斗法。</li>
+                        <li>每通关一层永久：<strong>气血 +10%、护体 +10%、力道 +10%</strong>；御器阁总加成<strong>永久 +10%</strong>；<strong>神锻真力 +2</strong>（与龙塔/魔神塔/神界同类加算）。</li>
+                    </ul>
+                </section>
+                <section class="wushen-arena-card dt-ghost-card dt-ghost-card--cta">
+                    <p class="wushen-arena-muted" id="dtGhostRealmStatusLine">魂气感应中…</p>
+                    <p class="dt-ghost-actions">
+                        <button type="button" class="btn btn--primary dt-ghost-challenge" id="dtGhostRealmChallengeBtn">叩幽魂</button>
+                    </p>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-container modal-container--alchemy" id="dongtianAlchemyModal" style="display:none;" aria-modal="true" role="dialog" aria-label="炼丹阁">
+        <div class="wushen-arena-sheet dongtian-alchemy-sheet">
+            <header class="wushen-arena-head dongtian-alchemy-head">
+                <div>
+                    <p class="wushen-arena-eyebrow dongtian-alchemy-eyebrow">洞天 · 玉虚正道</p>
+                    <h3 class="wushen-arena-title dongtian-alchemy-title">炼丹阁</h3>
+                    <p class="wushen-arena-sub dongtian-alchemy-sub">丙丁真火炼百草，一丸入口化灵根；丹成九转，道气长存。</p>
+                </div>
+                <div class="wushen-arena-head-actions">
+                    <button type="button" class="btn btn--sm btn--ghost" id="dongtianAlchemyRefreshBtn">刷新</button>
+                    <button type="button" class="btn btn--sm btn--ghost" id="dongtianAlchemyCloseBtn">关闭</button>
+                </div>
+            </header>
+            <div class="wushen-arena-body dongtian-alchemy-body" id="dongtianAlchemyBody"></div>
+        </div>
+    </div>
+
+    <div class="modal-container modal-container--forge" id="dongtianForgeModal" style="display:none;" aria-modal="true" role="dialog" aria-label="神锻阁">
+        <div class="wushen-arena-sheet dongtian-forge-sheet">
+            <header class="wushen-arena-head dongtian-forge-head">
+                <div>
+                    <p class="wushen-arena-eyebrow dongtian-forge-eyebrow">洞天劫 · 星轨铸灵</p>
+                    <h3 class="wushen-arena-title dongtian-forge-title">神锻阁</h3>
+                    <p class="wushen-arena-sub dongtian-forge-sub">六星连珠，真力入器；一锤一纹，皆化战力。</p>
+                </div>
+                <div class="wushen-arena-head-actions">
+                    <button type="button" class="btn btn--sm btn--ghost" id="dongtianForgeRefreshBtn">刷新</button>
+                    <button type="button" class="btn btn--sm btn--ghost" id="dongtianForgeCloseBtn">关闭</button>
+                </div>
+            </header>
+            <div class="wushen-arena-body dongtian-forge-body" id="dongtianForgeBody"></div>
+        </div>
+    </div>
+
+    <div class="modal-container modal-container--yuqi" id="dongtianYuqiModal" style="display:none;" aria-modal="true" role="dialog" aria-label="御器">
+        <div class="wushen-arena-sheet dongtian-yuqi-sheet">
+            <header class="wushen-arena-head dongtian-yuqi-head">
+                <div>
+                    <p class="wushen-arena-eyebrow dongtian-yuqi-eyebrow">洞天联网 · 劫纹蕴灵</p>
+                    <h3 class="wushen-arena-title dongtian-yuqi-title">御器阁</h3>
+                    <p class="wushen-arena-sub dongtian-yuqi-sub">一念御器，万法随身；碎片养劫纹，机缘自相生。</p>
+                </div>
+                <div class="wushen-arena-head-actions">
+                    <button type="button" class="btn btn--sm btn--ghost" id="dongtianYuqiCloseBtn">关闭</button>
+                </div>
+            </header>
+            <div class="wushen-arena-body dongtian-yuqi-body" id="dongtianYuqiBody"></div>
+        </div>
+    </div>
+
+    <div class="modal-container modal-container--lgxm" id="dongtianLgxmModal" style="display:none;" aria-modal="true" role="dialog" aria-label="灵根血脉">
+        <div class="wushen-arena-sheet dongtian-lgxm-sheet">
+            <header class="wushen-arena-head dongtian-lgxm-head">
+                <div>
+                    <p class="wushen-arena-eyebrow dongtian-lgxm-eyebrow">洞天联网 · 先天造化</p>
+                    <h3 class="wushen-arena-title dongtian-lgxm-title">灵根血脉</h3>
+                    <p class="wushen-arena-sub dongtian-lgxm-sub">灵根承道，血脉蕴劫；开箱得天命，道体为秤衡万法。</p>
+                </div>
+                <div class="wushen-arena-head-actions">
+                    <button type="button" class="btn btn--sm btn--ghost" id="dongtianLgxmRefreshBtn">刷新</button>
+                    <button type="button" class="btn btn--sm btn--ghost" id="dongtianLgxmCloseBtn">关闭</button>
+                </div>
+            </header>
+            <div class="wushen-arena-body dongtian-lgxm-body" id="dongtianLgxmBody"></div>
+        </div>
+    </div>
+
+    <div class="modal-container modal-container--lgxm-reveal" id="dongtianLgxmRevealModal" style="display:none;" aria-modal="true" role="dialog" aria-label="开箱结果确认">
+        <div class="dt-lgxm-reveal-sheet" id="dongtianLgxmRevealInner"></div>
+    </div>
+
+    <div class="modal-container modal-container--pet-pills" id="dongtianPetPillModal" style="display:none;" aria-modal="true" role="dialog" aria-label="灵宠丹药">
+        <div class="content modal-sheet modal-sheet--pet-pills">
+            <div class="modal-sheet__head modal-sheet__head--pet-pills">
+                <div>
+                    <p class="modal-sheet__eyebrow modal-sheet__eyebrow--pet">淬灵</p>
+                    <h3 class="modal-sheet__title--pet">丹药淬根</h3>
+                </div>
+                <button type="button" class="icon-btn" id="dongtianPetPillCloseBtn" title="关闭" aria-label="关闭"><i class="fa fa-xmark"></i></button>
+            </div>
+            <div class="scrollable" id="dongtianPetPillBody" style="padding:12px 14px 18px;"></div>
+        </div>
+    </div>
+
+    <div class="modal-container modal-container--pet-equip" id="dongtianPetEquipModal" style="display:none;" aria-modal="true" role="dialog" aria-label="灵宠法器">
+        <div class="wushen-arena-sheet dt-peq-sheet">
+            <div class="dt-peq-ambient" aria-hidden="true">
+                <span class="dt-peq-ambient__mist"></span>
+                <span class="dt-peq-ambient__glow"></span>
+                <span class="dt-peq-ambient__seal">器</span>
+            </div>
+            <header class="wushen-arena-head dt-peq-modal-head">
+                <div>
+                    <p class="wushen-arena-eyebrow dt-peq-eyebrow">洞天联网 · 兽纹蕴灵</p>
+                    <h3 class="wushen-arena-title dt-peq-title">灵宠法器</h3>
+                    <p class="wushen-arena-sub dt-peq-sub">三才位淬兽纹，机缘自相生；斩妖同获，与认主灵宠等运。</p>
+                </div>
+                <button type="button" class="icon-btn dt-peq-close" id="dongtianPetEquipCloseBtn" title="关闭" aria-label="关闭"><i class="fa fa-xmark"></i></button>
+            </header>
+            <div class="wushen-arena-body dt-peq-body scrollable" id="dongtianPetEquipBody"></div>
+        </div>
+    </div>
+
+    <div class="modal-container modal-container--lingtian" id="dongtianLingtianModal" style="display:none;" aria-modal="true" role="dialog" aria-label="灵田药园">
+        <div class="wushen-arena-sheet dongtian-lingtian-sheet">
+            <header class="wushen-arena-head">
+                <div>
+                    <p class="wushen-arena-eyebrow">洞天联网</p>
+                    <h3 class="wushen-arena-title">灵田药园</h3>
+                    <p class="wushen-arena-sub">采灵种，育仙草，结道缘。</p>
+                </div>
+                <div class="wushen-arena-head-actions">
+                    <button type="button" class="btn btn--sm btn--ghost" id="dongtianLingtianRefreshBtn">刷新</button>
+                    <button type="button" class="btn btn--sm btn--ghost" id="dongtianLingtianCloseBtn">关闭</button>
+                </div>
+            </header>
+            <div class="wushen-arena-body dongtian-lingtian-body">
+                <section class="wushen-arena-card">
+                    <h4 class="wushen-arena-card-title">灵田状态</h4>
+                    <p class="wushen-arena-muted" id="lingtianStatusLine">灵脉感应中...</p>
+                    <p class="wushen-arena-muted" id="lingtianAuraLine">灵气：—</p>
+                    <p class="wushen-arena-muted" id="lingtianDailyLine">今日偷取：—</p>
+                </section>
+                <section class="wushen-arena-card">
+                    <div class="lingtian-tabbar">
+                        <button type="button" class="btn btn--sm btn--primary lingtian-tab-btn" data-tab="farm">我的灵田</button>
+                        <button type="button" class="btn btn--sm btn--ghost lingtian-tab-btn" data-tab="seed">种子背包</button>
+                        <button type="button" class="btn btn--sm btn--ghost lingtian-tab-btn" data-tab="herb">成熟灵药</button>
+                        <button type="button" class="btn btn--sm btn--ghost lingtian-tab-btn" data-tab="world">世界灵田</button>
+                        <button type="button" class="btn btn--sm btn--ghost lingtian-tab-btn" data-tab="shop">声望商店</button>
+                    </div>
+                    <div id="lingtianPanelBody"></div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-container modal-container--sword-spirit" id="dongtianSwordSpiritModal" style="display:none;" aria-modal="true" role="dialog" aria-label="剑灵云游">
+        <div class="wushen-arena-sheet dongtian-sword-spirit-sheet">
+            <div class="dt-ss-ambient" aria-hidden="true">
+                <span class="dt-ss-ambient__mist"></span>
+                <span class="dt-ss-ambient__glow"></span>
+                <span class="dt-ss-ambient__seal">剑</span>
+                <span class="dt-ss-ambient__sigil" aria-hidden="true"></span>
+            </div>
+            <header class="wushen-arena-head dongtian-sword-spirit-head">
+                <div>
+                    <p class="wushen-arena-eyebrow dt-ss-eyebrow">洞天灵网 · 剑魄云游</p>
+                    <h3 class="wushen-arena-title dt-ss-title">剑灵云游</h3>
+                    <p class="wushen-arena-sub dt-ss-sub">凡尘为炉，劫尘作薪；一剑远游，唯借纪闻窥一线天机。</p>
+                </div>
+                <div class="wushen-arena-head-actions">
+                    <button type="button" class="btn btn--sm btn--ghost dt-ss-head-btn" id="dongtianSwordSpiritRefreshBtn">拂尘刷新</button>
+                    <button type="button" class="btn btn--sm btn--ghost dt-ss-head-btn" id="dongtianSwordSpiritCloseBtn">敛神关闭</button>
+                </div>
+            </header>
+            <div class="wushen-arena-body dongtian-sword-spirit-body">
+                <div class="dt-ss-xuan-frame">
+                    <nav class="dt-ss-tabs" role="tablist" aria-label="剑灵云游分页">
+                        <button type="button" class="dt-ss-tab dt-ss-tab--active" role="tab" id="dtSsTabLing" aria-controls="dtSsPanelLing" aria-selected="true" data-dt-ss-tab="ling">
+                            <span class="dt-ss-tab__glyph" aria-hidden="true">机</span><span class="dt-ss-tab__text">灵机</span>
+                        </button>
+                        <button type="button" class="dt-ss-tab" role="tab" id="dtSsTabXing" aria-controls="dtSsPanelXing" aria-selected="false" data-dt-ss-tab="xing">
+                            <span class="dt-ss-tab__glyph" aria-hidden="true">囊</span><span class="dt-ss-tab__text">行囊</span>
+                        </button>
+                        <button type="button" class="dt-ss-tab" role="tab" id="dtSsTabCang" aria-controls="dtSsPanelCang" aria-selected="false" data-dt-ss-tab="cang">
+                            <span class="dt-ss-tab__glyph" aria-hidden="true">藏</span><span class="dt-ss-tab__text">秘藏</span>
+                        </button>
+                        <button type="button" class="dt-ss-tab" role="tab" id="dtSsTabJian" aria-controls="dtSsPanelJian" aria-selected="false" data-dt-ss-tab="jian">
+                            <span class="dt-ss-tab__glyph" aria-hidden="true">笺</span><span class="dt-ss-tab__text">纪闻笺</span>
+                        </button>
+                        <button type="button" class="dt-ss-tab" role="tab" id="dtSsTabGui" aria-controls="dtSsPanelGui" aria-selected="false" data-dt-ss-tab="gui">
+                            <span class="dt-ss-tab__glyph" aria-hidden="true">归</span><span class="dt-ss-tab__text">归缘托梦</span>
+                        </button>
+                    </nav>
+                    <div class="dt-ss-tab-panels">
+                        <div id="dtSsPanelLing" class="dt-ss-tab-panel dt-ss-tab-panel--active" role="tabpanel" aria-labelledby="dtSsTabLing" data-dt-ss-panel="ling">
+                            <section class="dt-ss-xuan-card">
+                                <p class="dt-ss-xuan-verse" aria-hidden="true">「剑行万里，一念系之。」</p>
+                                <p class="dt-ss-phase" id="dtSsPhaseLine">状态加载中…</p>
+                                <p class="dt-ss-eta" id="dtSsEtaLine"></p>
+                                <p class="dt-ss-muted" id="dtSsFloorLine"></p>
+                                <p class="dt-ss-muted" id="dtSsCoinLine"></p>
+                            </section>
+                        </div>
+                        <div id="dtSsPanelXing" class="dt-ss-tab-panel" role="tabpanel" aria-labelledby="dtSsTabXing" data-dt-ss-panel="xing" hidden>
+                            <section class="dt-ss-panel dt-ss-panel--inner">
+                                <h4 class="dt-ss-panel-title"><span class="dt-ss-panel-icon" aria-hidden="true">芥</span>纳芥行囊</h4>
+                                <p class="dt-ss-muted dt-ss-pack-hint">自洞天行囊中取出丹药灵材，付与剑魄携行。一经远行，所纳之物化入劫尘，不可追回。单次合计至多四十份。</p>
+                                <div class="dt-ss-pack-form" id="dtSsPackForm"></div>
+                                <p class="dt-ss-actions">
+                                    <button type="button" class="btn btn--primary dt-ss-btn-primary" id="dtSsDepartBtn">送剑魄远行</button>
+                                </p>
+                            </section>
+                        </div>
+                        <div id="dtSsPanelCang" class="dt-ss-tab-panel" role="tabpanel" aria-labelledby="dtSsTabCang" data-dt-ss-panel="cang" hidden>
+                            <section class="dt-ss-panel dt-ss-panel--inner dt-ss-panel--cang">
+                                <h4 class="dt-ss-panel-title"><span class="dt-ss-panel-icon" aria-hidden="true">藏</span>云游秘藏</h4>
+                                <nav class="dt-ss-subtabs" role="tablist" aria-label="秘藏子分页">
+                                    <button type="button" class="dt-ss-subtab dt-ss-subtab--active" role="tab" id="dtSsCangSubTabTujian" aria-controls="dtSsCangPanelTujian" aria-selected="true" data-dt-ss-cang-sub="tujian">图鉴</button>
+                                    <button type="button" class="dt-ss-subtab" role="tab" id="dtSsCangSubTabJiacheng" aria-controls="dtSsCangPanelJiacheng" aria-selected="false" data-dt-ss-cang-sub="jiacheng">加成</button>
+                                </nav>
+                                <div id="dtSsCangPanelTujian" class="dt-ss-subpanel dt-ss-subpanel--active" role="tabpanel" aria-labelledby="dtSsCangSubTabTujian" data-dt-ss-cang-panel="tujian">
+                                    <p class="dt-ss-muted dt-ss-cang-hint">剑魄归来收纳劫尘时，或携回一件秘藏入册。凡品至劫墟，品阶愈高愈难遇；此处为已纳之物的形貌与轶闻。</p>
+                                    <div class="dt-ss-curio-grid" id="dtSsCurioGrid"></div>
+                                </div>
+                                <div id="dtSsCangPanelJiacheng" class="dt-ss-subpanel" role="tabpanel" aria-labelledby="dtSsCangSubTabJiacheng" data-dt-ss-cang-panel="jiacheng" hidden>
+                                    <p class="dt-ss-muted">多件秘藏与称号机缘<strong>同类加算</strong>；下列为秘藏叠加之机缘，数值微薄，重在积少成多。</p>
+                                    <p class="dt-ss-curio-count-line" id="dtSsCurioCountLine">已纳秘藏 —</p>
+                                    <p class="dt-ss-curio-bonus-head">累计机缘</p>
+                                    <ul class="dt-ss-curio-bonus-bits" id="dtSsCurioBonusBits"></ul>
+                                </div>
+                            </section>
+                        </div>
+                        <div id="dtSsPanelJian" class="dt-ss-tab-panel" role="tabpanel" aria-labelledby="dtSsTabJian" data-dt-ss-panel="jian" hidden>
+                            <section class="dt-ss-panel dt-ss-panel--inner dt-ss-panel--scroll">
+                                <h4 class="dt-ss-panel-title"><span class="dt-ss-panel-icon" aria-hidden="true">笺</span>云游纪闻</h4>
+                                <p class="dt-ss-muted dt-ss-jian-hint">途中见闻，皆录于此笺；轶闻条目偶带「志怪」笔意。</p>
+                                <ul class="dt-ss-log-list" id="dtSsLogList"></ul>
+                            </section>
+                        </div>
+                        <div id="dtSsPanelGui" class="dt-ss-tab-panel" role="tabpanel" aria-labelledby="dtSsTabGui" data-dt-ss-panel="gui" hidden>
+                            <section class="dt-ss-panel dt-ss-panel--inner">
+                                <h4 class="dt-ss-panel-title"><span class="dt-ss-panel-icon" aria-hidden="true">缘</span>归来劫尘</h4>
+                                <div id="dtSsRewardBox" class="dt-ss-reward-box"></div>
+                                <p class="dt-ss-actions dt-ss-collect-row">
+                                    <button type="button" class="btn btn--primary dt-ss-btn-primary" id="dtSsCollectBtn">收纳归来劫尘</button>
+                                </p>
+                            </section>
+                            <section class="dt-ss-panel dt-ss-panel--inner dt-ss-panel--dream-block">
+                                <h4 class="dt-ss-panel-title"><span class="dt-ss-panel-icon" aria-hidden="true">梦</span>神识托梦</h4>
+                                <p class="dt-ss-muted">云游途中，可耗强化石以神识托梦一句；剑魄或听或忘，归来纪闻中方见分晓。</p>
+                                <p class="dt-ss-muted dt-ss-dream-effect-hint">
+                                    仅<strong>最后一次</strong>托梦会略抬归来「劫尘」的机缘档次（与秘境层数、行囊负重同向叠加，微量）；纪闻笺中亦可能出现回声。
+                                </p>
+                                <div class="dt-ss-dream-row" id="dtSsDreamRow" style="display:none;">
+                                    <button type="button" class="btn btn--sm btn--ghost dt-ss-dream-btn" data-dt-ss-dream="east">嘱往东</button>
+                                    <button type="button" class="btn btn--sm btn--ghost dt-ss-dream-btn" data-dt-ss-dream="west">嘱往西</button>
+                                    <button type="button" class="btn btn--sm btn--ghost dt-ss-dream-btn" data-dt-ss-dream="care">嘱小心</button>
+                                    <button type="button" class="btn btn--sm btn--ghost dt-ss-dream-btn" data-dt-ss-dream="return">唤早归</button>
+                                </div>
+                                <div id="dtSsDreamLogWrap" class="dt-ss-dream-log-wrap" hidden>
+                                    <p class="dt-ss-dream-log-head">托梦留痕</p>
+                                    <ul id="dtSsDreamMsgList" class="dt-ss-dream-msg-list"></ul>
+                                </div>
+                            </section>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-container modal-container--word-guess" id="dongtianWordGuessModal" style="display:none;" aria-modal="true" role="dialog" aria-label="每日猜词">
+        <div class="wushen-arena-sheet dongtian-word-guess-sheet">
+            <header class="wushen-arena-head">
+                <div>
+                    <p class="wushen-arena-eyebrow">洞天联网</p>
+                    <h3 class="wushen-arena-title">每日猜词</h3>
+                    <p class="wushen-arena-sub">每天 12:01 刷新。</p>
+                </div>
+                <div class="wushen-arena-head-actions">
+                    <button type="button" class="btn btn--sm btn--ghost" id="dongtianWordGuessRefreshBtn">刷新</button>
+                    <button type="button" class="btn btn--sm btn--ghost" id="dongtianWordGuessCloseBtn">关闭</button>
+                </div>
+            </header>
+            <div class="wushen-arena-body dongtian-word-guess-body">
+                <section class="wushen-arena-card">
+                    <p class="wushen-arena-muted" id="dongtianWordGuessStatusLine">每日词语加载中...</p>
+                    <p class="wushen-arena-muted" id="dongtianWordGuessRuleLine">规则：每日300次，耗尽后可 1 联网币兑换 1 次。</p>
+                    <p class="wushen-arena-muted" id="dongtianWordGuessHintLine">方向提示：—</p>
+                    <p class="wushen-arena-muted" id="dongtianWordGuessResetLine">下次刷新：—</p>
+                </section>
+                <section class="wushen-arena-card">
+                    <p class="shitu-row">
+                        <input type="text" id="dongtianWordGuessInput" class="shitu-pid-input" maxlength="24" placeholder="请输入一个词语" autocomplete="off" />
+                        <button type="button" class="btn btn--sm btn--primary" id="dongtianWordGuessSubmitBtn">猜词</button>
+                        <button type="button" class="btn btn--sm btn--ghost" id="dongtianWordGuessBuyBtn">兑换1次</button>
+                    </p>
+                </section>
+                <section class="wushen-arena-card">
+                    <h4 class="wushen-arena-card-title">今日记录</h4>
+                    <ul class="shitu-ul word-guess-history-list" id="dongtianWordGuessHistory"></ul>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-container modal-container--zongmen" id="dongtianZongmenModal" style="display:none;" aria-modal="true" role="dialog" aria-label="联网宗门">
+        <div class="wushen-arena-sheet dongtian-zongmen-sheet">
+            <header class="wushen-arena-head dongtian-zongmen-head">
+                <div>
+                    <p class="wushen-arena-eyebrow dongtian-zongmen-eyebrow">洞天联网 · 仙宗谱系</p>
+                    <h3 class="wushen-arena-title dongtian-zongmen-title">联网宗门</h3>
+                    <p class="wushen-arena-sub">灵网身份 #<span id="dtZmSelfPid">—</span> · <span id="dtZmCoinLine">联网币：—</span></p>
+                </div>
+                <div class="wushen-arena-head-actions">
+                    <button type="button" class="btn btn--sm btn--ghost" id="dtZmRefreshBtn">刷新</button>
+                    <button type="button" class="btn btn--sm btn--ghost" id="dongtianZongmenCloseBtn">关闭</button>
+                </div>
+            </header>
+            <div class="dongtian-zongmen-hero">
+                <div class="dongtian-zongmen-hero__badge" id="dtZmHeroBadge" aria-hidden="true"></div>
+                <div class="dongtian-zongmen-hero__body">
+                    <h4 class="dongtian-zongmen-hero__name" id="dtZmHeroName">尚未入宗</h4>
+                    <p class="dongtian-zongmen-hero__meta" id="dtZmHeroMeta">—</p>
+                    <p class="dongtian-zongmen-hero__role">你的职位：<strong id="dtZmHeroRole">散修</strong></p>
+                </div>
+                <button type="button" class="btn btn--sm btn--ghost dongtian-zongmen-leave" id="dtZmLeaveBtn" style="display:none;">退出宗门</button>
+                <div class="dongtian-zongmen-leader-actions" id="dtZmLeaderActions" style="display:none;">
+                    <button type="button" class="btn btn--sm btn--ghost" id="dtZmDisbandBtn">解散宗门</button>
+                </div>
+            </div>
+            <div class="dongtian-zongmen-tabs dongtian-zongmen-tabs--row" role="tablist" aria-label="宗门分类">
+                <button type="button" role="tab" id="dtZmTabAnnounce" class="dongtian-zongmen-tab" aria-selected="false" aria-controls="dtZmPanelAnnounce" tabindex="-1" style="display:none;">宗门公告</button>
+                <button type="button" role="tab" id="dtZmTabMembers" class="dongtian-zongmen-tab" aria-selected="false" aria-controls="dtZmPanelMembers" tabindex="-1" style="display:none;">宗门名册</button>
+                <button type="button" role="tab" id="dtZmTabGongfa" class="dongtian-zongmen-tab" aria-selected="false" aria-controls="dtZmPanelGongfa" tabindex="-1" style="display:none;">功法阁</button>
+                <button type="button" role="tab" id="dtZmTabPending" class="dongtian-zongmen-tab" aria-selected="false" aria-controls="dtZmPanelPending" tabindex="-1" style="display:none;">入门申请</button>
+                <button type="button" role="tab" id="dtZmTabDaily" class="dongtian-zongmen-tab" aria-selected="false" aria-controls="dtZmPanelDaily" tabindex="-1" style="display:none;">宗门每日任务</button>
+                <button type="button" role="tab" id="dtZmTabBrowse" class="dongtian-zongmen-tab dt-zm-tab--active" aria-selected="true" aria-controls="dtZmPanelBrowse">寻访宗门</button>
+                <button type="button" role="tab" id="dtZmTabCreate" class="dongtian-zongmen-tab" aria-selected="false" aria-controls="dtZmPanelCreate" tabindex="-1">开宗立派</button>
+            </div>
+            <div class="dongtian-zongmen-body">
+                <div id="dtZmPanelAnnounce" class="dongtian-zongmen-panel" role="tabpanel" aria-labelledby="dtZmTabAnnounce" aria-hidden="true">
+                    <section class="wushen-arena-card dongtian-zongmen-card dongtian-zongmen-announce">
+                        <div class="dt-zm-announce-head">
+                            <h4 class="wushen-arena-card-title">宗门公告</h4>
+                            <span class="dt-zm-announce-time" id="dtZmAnnounceTime"></span>
+                        </div>
+                        <div class="dt-zm-announce-view" id="dtZmAnnounceView"></div>
+                        <div class="dt-zm-announce-edit" id="dtZmAnnounceEdit" style="display:none;">
+                            <textarea id="dtZmAnnounceInput" class="dt-zm-textarea" maxlength="200" rows="4" placeholder="发布宗门公告，全宗可见（最多200字）"></textarea>
+                            <p class="dt-zm-announce-actions">
+                                <button type="button" class="btn btn--sm btn--primary" id="dtZmAnnounceSaveBtn">发布公告</button>
+                                <button type="button" class="btn btn--sm btn--ghost" id="dtZmAnnounceClearBtn">清空公告</button>
+                            </p>
+                        </div>
+                    </section>
+                </div>
+                <div id="dtZmPanelMembers" class="dongtian-zongmen-panel" role="tabpanel" aria-labelledby="dtZmTabMembers" aria-hidden="true">
+                    <section class="wushen-arena-card dongtian-zongmen-card">
+                        <h4 class="wushen-arena-card-title">宗门名册</h4>
+                        <p class="wushen-arena-muted"></p>
+                        <div class="dt-zm-roster-host" id="dtZmMemberList"></div>
+                    </section>
+                </div>
+                <div id="dtZmPanelGongfa" class="dongtian-zongmen-panel dongtian-zongmen-panel--gongfa" role="tabpanel" aria-labelledby="dtZmTabGongfa" aria-hidden="true">
+                    <section class="wushen-arena-card dongtian-zongmen-card dongtian-zongmen-gongfa">
+                        <div class="dt-zm-gongfa-head">
+                            <div>
+                                <h4 class="wushen-arena-card-title">功法阁</h4>
+                                <p class="wushen-arena-muted" id="dtZmGongfaHint">全宗共享 · 宗主/副宗主消耗宗门总贡献参悟</p>
+                            </div>
+                            <div class="dt-zm-gongfa-pool">
+                                <span class="dt-zm-gongfa-pool__label">宗门总贡献</span>
+                                <strong class="dt-zm-gongfa-pool__val" id="dtZmGongfaPool">0</strong>
+                            </div>
+                        </div>
+                        <div class="dt-zm-gongfa-grid" id="dtZmGongfaGrid"></div>
+                    </section>
+                </div>
+                <div id="dtZmPanelPending" class="dongtian-zongmen-panel" role="tabpanel" aria-labelledby="dtZmTabPending" aria-hidden="true">
+                    <section class="wushen-arena-card dongtian-zongmen-card">
+                        <h4 class="wushen-arena-card-title">入门申请</h4>
+                        <p class="wushen-arena-muted" id="dtZmPendingHint">宗主、副宗主与长老可审核</p>
+                        <ul class="dt-zm-ul" id="dtZmPendingList"></ul>
+                    </section>
+                </div>
+                <div id="dtZmPanelDaily" class="dongtian-zongmen-panel dongtian-zongmen-panel--daily" role="tabpanel" aria-labelledby="dtZmTabDaily" aria-hidden="true">
+                    <section class="wushen-arena-card dongtian-zongmen-card">
+                        <h4 class="wushen-arena-card-title">宗门每日任务</h4>
+                        <p class="wushen-arena-muted" id="dtZmDailyRefreshLine">每日 12:01（北京时间）刷新</p>
+                        <p class="wushen-arena-muted" id="dtZmDailyEarnedLine">今日已获得贡献：0</p>
+                        <div class="dt-zm-daily-groups" id="dtZmDailyContent"></div>
+                    </section>
+                </div>
+                <div id="dtZmPanelBrowse" class="dongtian-zongmen-panel dt-zm-panel--active" role="tabpanel" aria-labelledby="dtZmTabBrowse" aria-hidden="false">
+                    <section class="wushen-arena-card dongtian-zongmen-card">
+                        <h4 class="wushen-arena-card-title">天下宗门</h4>
+                        <p class="wushen-arena-muted">择一宗门申请入门，待宗主、副宗主或长老同意</p>
+                        <ul class="dt-zm-ul dt-zm-ul--sects" id="dtZmSectList"></ul>
+                    </section>
+                </div>
+                <div id="dtZmPanelCreate" class="dongtian-zongmen-panel" role="tabpanel" aria-labelledby="dtZmTabCreate" aria-hidden="true">
+                    <section class="wushen-arena-card dongtian-zongmen-card dongtian-zongmen-create">
+                        <h4 class="wushen-arena-card-title">开宗立派</h4>
+                        <p class="wushen-arena-muted">消耗 500 联网币，自选宗门徽章，你将成为宗主</p>
+                        <p class="dt-zm-create-row">
+                            <label class="dt-zm-label" for="dtZmCreateName">宗门名号</label>
+                            <input type="text" id="dtZmCreateName" class="dt-zm-input" maxlength="24" placeholder="如：青云宗" autocomplete="off" />
+                        </p>
+                        <p class="dt-zm-label">宗门徽章</p>
+                        <div class="dt-zm-badge-grid" id="dtZmBadgePicker"></div>
+                        <p class="dt-zm-create-actions">
+                            <button type="button" class="btn btn--accent" id="dtZmCreateBtn">创立宗门（500 联网币）</button>
+                        </p>
+                    </section>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-container modal-container--dt-zm-confirm" id="dtZmConfirmModal" style="display:none;" aria-modal="true" role="alertdialog" aria-labelledby="dtZmConfirmTitle" aria-describedby="dtZmConfirmDesc">
+        <div class="dt-zm-confirm-sheet">
+            <header class="dt-zm-confirm-head">
+                <p class="dt-zm-confirm-eyebrow">联网宗门</p>
+                <h4 class="dt-zm-confirm-title" id="dtZmConfirmTitle">确认操作</h4>
+            </header>
+            <p class="dt-zm-confirm-desc" id="dtZmConfirmDesc"></p>
+            <div class="dt-zm-confirm-actions">
+                <button type="button" class="btn btn--sm btn--ghost" id="dtZmConfirmCancelBtn">取消</button>
+                <button type="button" class="btn btn--sm btn--primary" id="dtZmConfirmOkBtn">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-container modal-container--dt-zm-confirm" id="dtZmPromptModal" style="display:none;" aria-modal="true" role="dialog" aria-labelledby="dtZmPromptTitle">
+        <div class="dt-zm-confirm-sheet dt-zm-prompt-sheet">
+            <header class="dt-zm-confirm-head">
+                <p class="dt-zm-confirm-eyebrow">联网宗门</p>
+                <h4 class="dt-zm-confirm-title" id="dtZmPromptTitle">输入确认</h4>
+            </header>
+            <p class="dt-zm-confirm-desc" id="dtZmPromptDesc"></p>
+            <label class="dt-zm-label" for="dtZmPromptInput" id="dtZmPromptLabel">请输入确认内容</label>
+            <input type="text" id="dtZmPromptInput" class="dt-zm-input" autocomplete="off" />
+            <p class="dt-zm-prompt-err" id="dtZmPromptErr" hidden></p>
+            <div class="dt-zm-confirm-actions">
+                <button type="button" class="btn btn--sm btn--ghost" id="dtZmPromptCancelBtn">取消</button>
+                <button type="button" class="btn btn--sm btn--primary" id="dtZmPromptOkBtn">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-container modal-container--shitu" id="dongtianShituModal" style="display:none;" aria-modal="true" role="dialog" aria-label="师徒">
+        <div class="wushen-arena-sheet dongtian-shitu-sheet">
+            <header class="wushen-arena-head">
+                <div>
+                    <p class="wushen-arena-eyebrow">洞天联网</p>
+                    <h3 class="wushen-arena-title">师徒</h3>
+                    <p class="wushen-arena-sub">灵网身份 #<span id="shituSelfPid">—</span> · 拜师需历史秘境≤9层 · 收徒需历史秘境&gt;10层</p>
+                </div>
+                <div class="wushen-arena-head-actions">
+                    <button type="button" class="btn btn--sm btn--ghost" id="dongtianShituCloseBtn">关闭</button>
+                </div>
+            </header>
+            <div class="wushen-arena-body dongtian-shitu-body">
+                <section class="wushen-arena-card">
+                    <h4 class="wushen-arena-card-title">师父机缘</h4>
+                    <p class="wushen-arena-muted" id="shituGradCountLine">—</p>
+                    <p class="wushen-arena-muted" id="shituBonusLine">—</p>
+                </section>
+                <section class="wushen-arena-card" id="shituApplyBox">
+                    <h4 class="wushen-arena-card-title">拜师申请</h4>
+                    <p class="wushen-arena-muted">输入对方灵网身份（1–10000），向对方发送拜师申请；你当前须满足历史最高秘境≤9层。</p>
+                    <p class="shitu-row">
+                        <input type="number" id="shituTargetPidInput" class="shitu-pid-input" min="1" max="10000" placeholder="对方灵网身份" autocomplete="off" />
+                        <button type="button" class="btn btn--sm btn--primary" id="shituApplyBtn">发送申请</button>
+                    </p>
+                </section>
+                <section class="wushen-arena-card" id="shituMasterRelation" style="display:none;">
+                    <h4 class="wushen-arena-card-title">当前师徒</h4>
+                    <div id="shituMasterRelationInner"></div>
+                    <p class="shitu-actions">
+                        <button type="button" class="btn btn--sm btn--accent" id="shituGraduateBtn" disabled>出师</button>
+                    </p>
+                </section>
+                <section class="wushen-arena-card">
+                    <h4 class="wushen-arena-card-title">申请栏（师父）</h4>
+                    <ul class="shitu-ul" id="shituPendingList"></ul>
+                </section>
+                <section class="wushen-arena-card">
+                    <h4 class="wushen-arena-card-title">徒弟列表</h4>
+                    <p class="wushen-arena-muted">最多同时 3 名徒弟；出师或逐出后可再收。</p>
+                    <ul class="shitu-ul" id="shituApprenticeList"></ul>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        (function (b) {
+            document.write(
+                '<script src="./assets/js/dongtian-asset-boot.js?b=' +
+                    encodeURIComponent(b || "dev") +
+                    '"><\/script>'
+            );
+        })(window.__DONGTIAN_ASSET_BUILD);
+    </script>
+ <!--客服 开始-->
 <script src="//g8hh.github.io/static/js/jquery.min.js"></script>
 <link rel="stylesheet" href="//g8hh.github.io/static/css/kf.css" type="text/css" media="screen" charset="utf-8">
 <script src="//g8hh.github.io/static/js/kf.js"></script>
-<!-- 客服 结束 -->
+ <!-- 客服 结束 -->
 <!--站长统计-->
     <div style="display: none">
 <script>

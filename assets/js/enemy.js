@@ -23,8 +23,39 @@ let enemy = {
 
 
 var CURSE_ENEMY_STAT_MULTIPLIER = 2.8;
-/** 经验结算等级封顶：本层正常最高怪物等级（maxLvl）基础上再放宽 +5。 */
 var DUNGEON_EXP_REWARD_LVL_CAP_BONUS = 5;
+var DONGTIAN_ENEMY_CRIT_RATE_CAP = 20;
+var DONGTIAN_ENEMY_CRIT_DMG_CAP = 500;
+/** 击杀修为最终入账上限：≤ CAP_FROM_FLOOR 层为 FINAL_CAP_BASE；其后每层 +FINAL_CAP_STEP（再经 MONSTER_EXP_DROP_MULT 反推 expBase 顶） */
+var DONGTIAN_MONSTER_EXP_REWARD_CAP_FROM_FLOOR = 5;
+var DONGTIAN_MONSTER_EXP_REWARD_FINAL_CAP_BASE = 150000;
+var DONGTIAN_MONSTER_EXP_REWARD_FINAL_CAP_STEP = 10000;
+var MONSTER_EXP_DROP_MULT = 0.15;
+
+function getDongtianMonsterExpRewardExpBaseCapForFloor(floor) {
+    var f = Math.max(1, Math.floor(Number(floor) || 1));
+    var fromF =
+        typeof DONGTIAN_MONSTER_EXP_REWARD_CAP_FROM_FLOOR === "number" && isFinite(DONGTIAN_MONSTER_EXP_REWARD_CAP_FROM_FLOOR)
+            ? Math.max(1, Math.floor(DONGTIAN_MONSTER_EXP_REWARD_CAP_FROM_FLOOR))
+            : 5;
+    var baseFinal =
+        typeof DONGTIAN_MONSTER_EXP_REWARD_FINAL_CAP_BASE === "number" && isFinite(DONGTIAN_MONSTER_EXP_REWARD_FINAL_CAP_BASE)
+            ? Math.max(1, Math.floor(DONGTIAN_MONSTER_EXP_REWARD_FINAL_CAP_BASE))
+            : 150000;
+    var step =
+        typeof DONGTIAN_MONSTER_EXP_REWARD_FINAL_CAP_STEP === "number" && isFinite(DONGTIAN_MONSTER_EXP_REWARD_FINAL_CAP_STEP)
+            ? Math.max(0, Math.floor(DONGTIAN_MONSTER_EXP_REWARD_FINAL_CAP_STEP))
+            : 10000;
+    var finalCap = baseFinal + Math.max(0, f - fromF) * step;
+    var drop = typeof MONSTER_EXP_DROP_MULT === "number" && MONSTER_EXP_DROP_MULT > 0 ? MONSTER_EXP_DROP_MULT : 0.15;
+    return Math.max(1, Math.round(finalCap / drop));
+}
+
+function clampDongtianEnemyCritStats() {
+    if (!enemy || !enemy.stats) return;
+    enemy.stats.critRate = Math.max(0, Math.min(DONGTIAN_ENEMY_CRIT_RATE_CAP, Number(enemy.stats.critRate) || 0));
+    enemy.stats.critDmg = Math.max(0, Math.min(DONGTIAN_ENEMY_CRIT_DMG_CAP, Number(enemy.stats.critDmg) || 0));
+}
 
 function getDungeonExpRewardLevelCapForCurrentFloor() {
     if (typeof dungeon === "undefined" || !dungeon || !dungeon.progress || !dungeon.settings) return null;
@@ -45,13 +76,74 @@ function getDungeonExpRewardLevelCapForCurrentFloor() {
     return Math.max(1, maxLvl + bonus);
 }
 
+/** 联网洞天：妖兽掷骰与层/劫/dungeon.action 绑定（与 dungeon.js 主事件一致）；双塔构建仍用 Math.random 与秘境解耦。 */
+function dongtianEnemyRoll01(salt) {
+    try {
+        if (typeof window !== "undefined" && window.DONGTIAN_CLOUD_MODE && typeof dongtianEventSeeded01 === "function") {
+            return dongtianEventSeeded01("eg|" + String(salt || "x"));
+        }
+    } catch (eR) {}
+    return Math.random();
+}
+function dongtianEnemyRandInt(min, max, salt) {
+    var lo = Math.ceil(Math.min(min, max));
+    var hi = Math.floor(Math.max(min, max));
+    var u = dongtianEnemyRoll01(salt);
+    return Math.round(Math.floor(u * (hi - lo + 1)) + lo);
+}
+function dongtianEnemyRandDecimal(min, max, salt) {
+    var u = dongtianEnemyRoll01(salt);
+    return u * (max - min) + min;
+}
+
 const generateRandomEnemy = (condition) => {
+  try {
+    if (
+      typeof player !== "undefined" &&
+      player &&
+      player.inCombat &&
+      typeof window.isDongtianTowerCombatSession === "function" &&
+      window.isDongtianTowerCombatSession()
+    ) {
+      return;
+    }
+  } catch (eTowerGenGuard) {}
+    /** 全局 enemy 复用：若 dragonTower/demonTower 未剥除，普通斗法收尾会误走塔界面。塔内 build* 时会挂 __dongtian*Building，其间禁止清除。 */
+    try {
+        if (
+            typeof window === "undefined" ||
+            (!window.__dongtianDragonTowerBuilding &&
+                !window.__dongtianDemonTowerBuilding &&
+                !window.__dongtianDivineRealmBuilding &&
+                !window.__dongtianSpiritBeastRealmBuilding &&
+                !window.__dongtianGhostRealmBuilding)
+        ) {
+            try {
+                delete enemy.dragonTower;
+            } catch (eDropDt) {}
+            try {
+                delete enemy.demonTower;
+            } catch (eDropDm) {}
+            try {
+                delete enemy.__dungeonFloorGuardianGate;
+            } catch (eDropFg) {}
+            try {
+                delete enemy.molongRaid;
+            } catch (eDropMr) {}
+            try {
+                delete enemy.wushenArena;
+            } catch (eDropWs) {}
+            try {
+                delete enemy.treasureMapBattle;
+            } catch (eDropTm) {}
+        }
+    } catch (eStripTower) {}
     const floorN = (dungeon && dungeon.progress && dungeon.progress.floor) ? dungeon.progress.floor : 1;
     if (typeof pickEnemyAffixIndex === "function") {
         enemy.affixIndex = pickEnemyAffixIndex(floorN);
     } else {
         enemy.affixIndex = (typeof ENEMY_AFFIXES !== "undefined" && ENEMY_AFFIXES.length)
-            ? Math.floor(Math.random() * ENEMY_AFFIXES.length)
+            ? Math.floor(dongtianEnemyRoll01("affixFallback|" + floorN + "|" + (condition || "")) * ENEMY_AFFIXES.length)
             : -1;
     }
     if (typeof pickEnemyQualityTier === "function") {
@@ -60,10 +152,26 @@ const generateRandomEnemy = (condition) => {
         enemy.qualityTier = 0;
     }
 
-    enemy.bossRole = condition === "guardian" || condition === "sboss" ? condition : null;
+    enemy.bossRole =
+        condition === "guardian" ||
+        condition === "sboss" ||
+        condition === "treasuremap" ||
+        condition === "dragonspire" ||
+        condition === "demontower"
+            ? condition
+            : null;
 
     // 先分配机制类型，再在 setEnemyStats 中完成机制参数初始化（护盾值/幻相闪避等）。
     assignEnemyMechanic(condition);
+
+    /** 登龙塔/魔神塔：同层重复挑战须与秘境随机遇敌解耦，否则 type/lvl/机制掷骰会导致体感「同一层忽强忽弱」。 */
+    var _dtTowerBuild =
+        typeof window !== "undefined" &&
+        (window.__dongtianDragonTowerBuilding ||
+            window.__dongtianDemonTowerBuilding ||
+            window.__dongtianDivineRealmBuilding ||
+            window.__dongtianSpiritBeastRealmBuilding ||
+            window.__dongtianGhostRealmBuilding);
 
     // 妖兽名录：杂兵为兽形/精怪名；镇守为层主；主宰为秘境霸主
     const enemyNames = [
@@ -88,9 +196,18 @@ const generateRandomEnemy = (condition) => {
     ];
     const enemyTypes = ['Offensive', 'Defensive', 'Balanced', 'Quick', 'Lethal'];
     let selectedEnemies = null;
+    function pickEnemyNameFromList(list, tag) {
+        if (!list || !list.length) return "";
+        if (_dtTowerBuild) return list[Math.floor(Math.random() * list.length)];
+        return list[dongtianEnemyRandInt(0, list.length - 1, "nm|" + (enemy.type || "?") + "|" + (condition || "") + "|" + tag)];
+    }
 
-    // Generate enemy type
-    enemy.type = enemyTypes[Math.floor(Math.random() * enemyTypes.length)];
+    // Generate enemy type（双塔：固定均衡型，与魔神塔说明一致，避免 Offensive/Lethal 等基底池跨度）
+    if (_dtTowerBuild) {
+        enemy.type = "Balanced";
+    } else {
+        enemy.type = enemyTypes[Math.floor(dongtianEnemyRoll01("etype|" + (condition || "") + "|" + floorN) * enemyTypes.length)];
+    }
 
     // Calculate enemy level
     const maxLvl = dungeon.progress.floor * dungeon.settings.enemyLvlGap + (dungeon.settings.enemyBaseLvl - 1);
@@ -99,8 +216,10 @@ const generateRandomEnemy = (condition) => {
         enemy.lvl = minLvl;
     } else if (condition == "sboss") {
         enemy.lvl = maxLvl;
+    } else if (_dtTowerBuild) {
+        enemy.lvl = maxLvl;
     } else {
-        enemy.lvl = randomizeNum(minLvl, maxLvl);
+        enemy.lvl = dongtianEnemyRandInt(minLvl, maxLvl, "elvl|" + (condition || "") + "|" + enemy.type);
     }
 
     // Generate proper enemy info
@@ -121,7 +240,7 @@ const generateRandomEnemy = (condition) => {
                     '铁爪狰', '腐骨鸦', '瘴眼蟾', '幽影狈'
                 ].includes(name));
             }
-            enemy.name = selectedEnemies[Math.floor(Math.random() * selectedEnemies.length)];
+            enemy.name = pickEnemyNameFromList(selectedEnemies, "Off");
             setEnemyStats(enemy.type, condition);
             break;
         case "Defensive":
@@ -139,7 +258,7 @@ const generateRandomEnemy = (condition) => {
                     '铜鬃山猪', '玄甲龟兽', '石皮犀', '铁背熊罴', '千年岩龟', '岩铠蜈蚣'
                 ].includes(name));
             }
-            enemy.name = selectedEnemies[Math.floor(Math.random() * selectedEnemies.length)];
+            enemy.name = pickEnemyNameFromList(selectedEnemies, "Def");
             setEnemyStats(enemy.type, condition);
             break;
         case "Balanced":
@@ -157,7 +276,7 @@ const generateRandomEnemy = (condition) => {
                     '雾隐狐', '幽鳞蟒', '蛇尾貂', '寒骨蛇', '赤练火蜈', '魇面狐'
                 ].includes(name));
             }
-            enemy.name = selectedEnemies[Math.floor(Math.random() * selectedEnemies.length)];
+            enemy.name = pickEnemyNameFromList(selectedEnemies, "Bal");
             setEnemyStats(enemy.type, condition);
             break;
         case "Quick":
@@ -175,7 +294,7 @@ const generateRandomEnemy = (condition) => {
                     '疾风貂', '影刃螳螂', '银线蛇', '鬼面蝠', '闪灵猫', '游风狼'
                 ].includes(name));
             }
-            enemy.name = selectedEnemies[Math.floor(Math.random() * selectedEnemies.length)];
+            enemy.name = pickEnemyNameFromList(selectedEnemies, "Qck");
             setEnemyStats(enemy.type, condition);
             break;
         case "Lethal":
@@ -193,7 +312,7 @@ const generateRandomEnemy = (condition) => {
                     '血瞳狈', '断魂蛛', '黑砂蝎', '魇瞳狐', '噬心蜈', '裂心狰'
                 ].includes(name));
             }
-            enemy.name = selectedEnemies[Math.floor(Math.random() * selectedEnemies.length)];
+            enemy.name = pickEnemyNameFromList(selectedEnemies, "Lth");
             setEnemyStats(enemy.type, condition);
             break;
     }
@@ -209,6 +328,9 @@ const generateRandomEnemy = (condition) => {
             : { label: "凡物" };
         enemy.name = qt.label + "·" + ax.prefix + "·" + enemy.name;
     }
+    if (typeof window !== "undefined" && window.__dongtianDemonTowerBuilding && condition === "sboss") {
+        enemy.name = "阎摩天魔·镇劫";
+    }
     if (typeof enemy.name === "string" && enemy.name.length) {
         enemy.name = enemy.name
             .replace(/\s*,\s*/g, "·")
@@ -219,10 +341,21 @@ const generateRandomEnemy = (condition) => {
 }
 
 const assignEnemyMechanic = (condition) => {
-    const roll = Math.random();
+    if (
+        typeof window !== "undefined" &&
+        (window.__dongtianDemonTowerBuilding ||
+            window.__dongtianDragonTowerBuilding ||
+            window.__dongtianDivineRealmBuilding ||
+            window.__dongtianSpiritBeastRealmBuilding ||
+            window.__dongtianGhostRealmBuilding)
+    ) {
+        enemy.mechanic = null;
+        return;
+    }
+    const roll = dongtianEnemyRoll01("mechRoll|" + (condition || ""));
     const isBoss = condition === "guardian" || condition === "sboss";
     const pool = ["shield", "summoner", "charger", "thorned", "phase", "berserker", "duelist", "bulwark"];
-    let type = pool[Math.floor(Math.random() * pool.length)];
+    let type = pool[dongtianEnemyRandInt(0, pool.length - 1, "mechPick|" + (condition || ""))];
     if (!isBoss && roll > 0.6) {
         enemy.mechanic = null;
         return;
@@ -245,60 +378,81 @@ const assignEnemyMechanic = (condition) => {
 
 // Set a randomly generated stat for the enemy
 const setEnemyStats = (type, condition) => {
+    var rngTag = String(type || "") + "|" + (condition != null && condition !== undefined ? String(condition) : "");
     if (type == "Offensive") {
         enemy.stats = {
             hp: 0,
-            hpMax: randomizeNum(300, 370),
-            atk: randomizeNum(70, 100),
-            def: randomizeNum(20, 50),
-            atkSpd: randomizeDecimal(0.2, 0.4),
+            hpMax: dongtianEnemyRandInt(300, 370, rngTag + "|hpMax"),
+            atk: dongtianEnemyRandInt(70, 100, rngTag + "|atk"),
+            def: dongtianEnemyRandInt(20, 50, rngTag + "|def"),
+            atkSpd: dongtianEnemyRandDecimal(0.2, 0.4, rngTag + "|aspd"),
             vamp: 0,
-            critRate: randomizeDecimal(1, 4),
-            critDmg: randomizeDecimal(6.5, 7.5)
+            critRate: dongtianEnemyRandDecimal(1, 4, rngTag + "|cr"),
+            critDmg: dongtianEnemyRandDecimal(6.5, 7.5, rngTag + "|cd")
         };
     } else if (type == "Defensive") {
         enemy.stats = {
             hp: 0,
-            hpMax: randomizeNum(400, 500),
-            atk: randomizeNum(40, 70),
-            def: randomizeNum(40, 70),
-            atkSpd: randomizeDecimal(0.1, 0.3),
+            hpMax: dongtianEnemyRandInt(400, 500, rngTag + "|hpMax"),
+            atk: dongtianEnemyRandInt(40, 70, rngTag + "|atk"),
+            def: dongtianEnemyRandInt(40, 70, rngTag + "|def"),
+            atkSpd: dongtianEnemyRandDecimal(0.1, 0.3, rngTag + "|aspd"),
             vamp: 0,
             critRate: 0,
             critDmg: 0
         };
     } else if (type == "Balanced") {
+        if (
+            typeof window !== "undefined" &&
+            (window.__dongtianDemonTowerBuilding ||
+            window.__dongtianDragonTowerBuilding ||
+            window.__dongtianDivineRealmBuilding ||
+            window.__dongtianSpiritBeastRealmBuilding ||
+            window.__dongtianGhostRealmBuilding)
+        ) {
+            enemy.stats = {
+                hp: 0,
+                hpMax: 370,
+                atk: 65,
+                def: 45,
+                atkSpd: 0.25,
+                vamp: 0,
+                critRate: 1,
+                critDmg: 2
+            };
+        } else {
         enemy.stats = {
             hp: 0,
-            hpMax: randomizeNum(320, 420),
-            atk: randomizeNum(50, 80),
-            def: randomizeNum(30, 60),
-            atkSpd: randomizeDecimal(0.15, 0.35),
+            hpMax: dongtianEnemyRandInt(320, 420, rngTag + "|hpMax"),
+            atk: dongtianEnemyRandInt(50, 80, rngTag + "|atk"),
+            def: dongtianEnemyRandInt(30, 60, rngTag + "|def"),
+            atkSpd: dongtianEnemyRandDecimal(0.15, 0.35, rngTag + "|aspd"),
             vamp: 0,
-            critRate: randomizeDecimal(0.5, 1.5),
-            critDmg: randomizeDecimal(1, 3)
+            critRate: dongtianEnemyRandDecimal(0.5, 1.5, rngTag + "|cr"),
+            critDmg: dongtianEnemyRandDecimal(1, 3, rngTag + "|cd")
         };
+        }
     } else if (type == "Quick") {
         enemy.stats = {
             hp: 0,
-            hpMax: randomizeNum(300, 370),
-            atk: randomizeNum(50, 80),
-            def: randomizeNum(30, 60),
-            atkSpd: randomizeDecimal(0.35, 0.45),
+            hpMax: dongtianEnemyRandInt(300, 370, rngTag + "|hpMax"),
+            atk: dongtianEnemyRandInt(50, 80, rngTag + "|atk"),
+            def: dongtianEnemyRandInt(30, 60, rngTag + "|def"),
+            atkSpd: dongtianEnemyRandDecimal(0.35, 0.45, rngTag + "|aspd"),
             vamp: 0,
-            critRate: randomizeDecimal(1, 4),
-            critDmg: randomizeDecimal(3, 6)
+            critRate: dongtianEnemyRandDecimal(1, 4, rngTag + "|cr"),
+            critDmg: dongtianEnemyRandDecimal(3, 6, rngTag + "|cd")
         };
     } else if (type == "Lethal") {
         enemy.stats = {
             hp: 0,
-            hpMax: randomizeNum(300, 370),
-            atk: randomizeNum(70, 100),
-            def: randomizeNum(20, 50),
-            atkSpd: randomizeDecimal(0.15, 0.35),
+            hpMax: dongtianEnemyRandInt(300, 370, rngTag + "|hpMax"),
+            atk: dongtianEnemyRandInt(70, 100, rngTag + "|atk"),
+            def: dongtianEnemyRandInt(20, 50, rngTag + "|def"),
+            atkSpd: dongtianEnemyRandDecimal(0.15, 0.35, rngTag + "|aspd"),
             vamp: 0,
-            critRate: randomizeDecimal(4, 8),
-            critDmg: randomizeDecimal(6, 9)
+            critRate: dongtianEnemyRandDecimal(4, 8, rngTag + "|cr"),
+            critDmg: dongtianEnemyRandDecimal(6, 9, rngTag + "|cd")
         };
     }
 
@@ -445,6 +599,8 @@ const setEnemyStats = (type, condition) => {
         enemy.stats.critDmg = enemy.stats.critDmg * floor20BossNerf;
     }
 
+    clampDongtianEnemyCritStats();
+
     // Calculate exp and gold that the monster gives
     const expYield = [];
 
@@ -467,26 +623,63 @@ const setEnemyStats = (type, condition) => {
             ? Math.max(1, Math.floor(Number(enemy.lvl) || 1))
             : Math.min(Math.max(1, Math.floor(Number(enemy.lvl) || 1)), expLvlCap);
     let expBase = Math.round((expCalculation + expCalculation * (expLvlForReward * 0.1)) * totalLootMul);
-    if (expBase > 1000000) {
-        expBase = Math.round(1000000 * randomizeDecimal(0.9, 1.1));
+    var expBaseCap = getDongtianMonsterExpRewardExpBaseCapForFloor(f);
+    if (expBase > expBaseCap) {
+        expBase = Math.round(expBaseCap * dongtianEnemyRandDecimal(0.9, 1.1, rngTag + "|expCap"));
     }
 
-    const MONSTER_EXP_DROP_MULT = 0.15;
     enemy.rewards.exp = Math.max(1, Math.round(expBase * MONSTER_EXP_DROP_MULT));
     // 押镖 / 地脉采矿：击杀不计修为；灵石与掉落照旧（圆满结算也不再发感悟，见 endEscortRun）
     if (isEscortActive || isMiningActive) {
         enemy.rewards.exp = 0;
     }
-    enemy.rewards.gold = applyGoldGainMult(Math.round((expBase * randomizeDecimal(0.9, 1.1)) * 1.5));
-    enemy.rewards.drop = randomizeNum(1, 3);
-    if (enemy.rewards.drop == 1) {
-        enemy.rewards.drop = true;
-    } else {
-        enemy.rewards.drop = false;
+    enemy.rewards.gold = applyGoldGainMult(Math.round((expBase * dongtianEnemyRandDecimal(0.9, 1.1, rngTag + "|goldJ")) * 1.5));
+    var isBossEnemy = condition === "guardian" || condition === "sboss";
+    var equipDropChance = isBossEnemy ? 1 / 3 : 0.2;
+    var nriActive = false;
+    var nriRem = 0;
+    try {
+        nriActive =
+            typeof isNextRoomIgnoreCombatQueueActive === "function" && isNextRoomIgnoreCombatQueueActive();
+        if (nriActive && typeof getNextRoomIgnoreCombatRemaining === "function") {
+            nriRem = getNextRoomIgnoreCombatRemaining();
+        }
+    } catch (eNriDrop) {}
+    if (nriActive) {
+        equipDropChance =
+            typeof NEXTROOM_IGNORE_EQUIP_DROP_CHANCE === "number" && isFinite(NEXTROOM_IGNORE_EQUIP_DROP_CHANCE)
+                ? NEXTROOM_IGNORE_EQUIP_DROP_CHANCE
+                : 0.1;
+    }
+    enemy.rewards.drop = dongtianEnemyRoll01(rngTag + "|drop") < equipDropChance;
+    if (nriActive && dungeon && dungeon.settings) {
+        var nriHadDrop = !!dungeon.settings.nextRoomIgnoreCombatLootDropped;
+        if (nriRem === 1 && !nriHadDrop) {
+            enemy.rewards.drop = true;
+        }
+        if (enemy.rewards.drop) {
+            dungeon.settings.nextRoomIgnoreCombatLootDropped = true;
+        }
     }
     if (condition === "chest") {
         enemy.rewards.drop = false;
     }
+    try {
+        if (
+            typeof window !== "undefined" &&
+            (window.__dongtianDragonTowerBuilding ||
+                window.__dongtianDemonTowerBuilding ||
+                window.__dongtianDivineRealmBuilding ||
+                window.__dongtianSpiritBeastRealmBuilding ||
+                window.__dongtianGhostRealmBuilding ||
+                (typeof window.isDongtianTowerCombatSession === "function" &&
+                    window.isDongtianTowerCombatSession()))
+        ) {
+            enemy.rewards.exp = 0;
+            enemy.rewards.gold = 0;
+            enemy.rewards.drop = false;
+        }
+    } catch (eTowerRw) {}
 
     enemy.stats.hp = enemy.stats.hpMax;
     enemy.stats.hpPercent = 100;
@@ -535,6 +728,9 @@ const enemyLoadStats = () => {
 
     const enemyHpElement = document.querySelector('#enemy-hp-battle');
     const enemyHpDamageElement = document.querySelector('#enemy-hp-dmg');
+    if (!enemyHpElement || !enemyHpDamageElement) {
+        return;
+    }
     if (hasShieldMechanic) {
         enemyHpElement.innerHTML = `${nFormatter(enemy.stats.hp)}+${nFormatter(shieldNow)}/${nFormatter(enemy.stats.hpMax)}+${nFormatter(shieldMax)} <span class="combat-bar__pct">${enemy.stats.hpPercent}%</span>`;
     } else {

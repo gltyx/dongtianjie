@@ -45,53 +45,89 @@ for (var _enMaxI = 0; _enMaxI < ENCHANT_TIER_ROLL_TABLE.length; _enMaxI++) {
     if (typeof _mx === "number" && _mx > ENCHANT_PCT_ROLL_MAX) ENCHANT_PCT_ROLL_MAX = _mx;
 }
 
+/** 将材料槽读成非负整数（与服务端 sanitize 一致；兼容 JSON/旧档字符串数量） */
+function readInventoryMaterialCount(raw) {
+    if (typeof raw === "number" && !isNaN(raw)) {
+        return Math.max(0, Math.floor(raw));
+    }
+    var n = parseInt(raw, 10);
+    return isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+}
+
+function coerceInventoryMaterialSlot(id) {
+    if (!player || !player.inventory || !player.inventory.materials) return;
+    player.inventory.materials[id] = readInventoryMaterialCount(player.inventory.materials[id]);
+}
+
 function ensureInventoryMaterials() {
     if (!player || !player.inventory) return;
     if (!player.inventory.materials || typeof player.inventory.materials !== "object") {
         player.inventory.materials = {};
     }
-    if (typeof player.inventory.materials[MATERIAL_ENHANCE_STONE] !== "number" || isNaN(player.inventory.materials[MATERIAL_ENHANCE_STONE])) {
-        player.inventory.materials[MATERIAL_ENHANCE_STONE] = 0;
-    }
-    if (typeof player.inventory.materials[MATERIAL_ENCHANT_STONE] !== "number" || isNaN(player.inventory.materials[MATERIAL_ENCHANT_STONE])) {
-        player.inventory.materials[MATERIAL_ENCHANT_STONE] = 0;
-    }
-    if (typeof player.inventory.materials[MATERIAL_GOD_ESSENCE_STONE] !== "number" || isNaN(player.inventory.materials[MATERIAL_GOD_ESSENCE_STONE])) {
-        player.inventory.materials[MATERIAL_GOD_ESSENCE_STONE] = 0;
-    }
-    if (typeof MATERIAL_GEM_PACK !== "undefined" && (typeof player.inventory.materials[MATERIAL_GEM_PACK] !== "number" || isNaN(player.inventory.materials[MATERIAL_GEM_PACK]))) {
-        player.inventory.materials[MATERIAL_GEM_PACK] = 0;
-    }
-    if (typeof MATERIAL_SOCKET_OPENER !== "undefined" && (typeof player.inventory.materials[MATERIAL_SOCKET_OPENER] !== "number" || isNaN(player.inventory.materials[MATERIAL_SOCKET_OPENER]))) {
-        player.inventory.materials[MATERIAL_SOCKET_OPENER] = 0;
-    }
-    if (typeof MATERIAL_TALENT_FRUIT !== "undefined" && (typeof player.inventory.materials[MATERIAL_TALENT_FRUIT] !== "number" || isNaN(player.inventory.materials[MATERIAL_TALENT_FRUIT]))) {
-        player.inventory.materials[MATERIAL_TALENT_FRUIT] = 0;
-    }
-    if (typeof MATERIAL_LIFE_POTION !== "undefined" && (typeof player.inventory.materials[MATERIAL_LIFE_POTION] !== "number" || isNaN(player.inventory.materials[MATERIAL_LIFE_POTION]))) {
-        player.inventory.materials[MATERIAL_LIFE_POTION] = 0;
-    }
-    if (typeof MATERIAL_PET_EXP_FRUIT !== "undefined" && (typeof player.inventory.materials[MATERIAL_PET_EXP_FRUIT] !== "number" || isNaN(player.inventory.materials[MATERIAL_PET_EXP_FRUIT]))) {
-        player.inventory.materials[MATERIAL_PET_EXP_FRUIT] = 0;
-    }
-    if (typeof MATERIAL_SECRET_REALM_WARP !== "undefined" && (typeof player.inventory.materials[MATERIAL_SECRET_REALM_WARP] !== "number" || isNaN(player.inventory.materials[MATERIAL_SECRET_REALM_WARP]))) {
-        player.inventory.materials[MATERIAL_SECRET_REALM_WARP] = 0;
+    var m = player.inventory.materials;
+    Object.keys(m).forEach(function (k) {
+        if (k.indexOf("__") === 0) return;
+        m[k] = readInventoryMaterialCount(m[k]);
+    });
+    coerceInventoryMaterialSlot(MATERIAL_ENHANCE_STONE);
+    coerceInventoryMaterialSlot(MATERIAL_ENCHANT_STONE);
+    coerceInventoryMaterialSlot(MATERIAL_GOD_ESSENCE_STONE);
+    if (typeof MATERIAL_GEM_PACK !== "undefined") coerceInventoryMaterialSlot(MATERIAL_GEM_PACK);
+    if (typeof MATERIAL_SOCKET_OPENER !== "undefined") coerceInventoryMaterialSlot(MATERIAL_SOCKET_OPENER);
+    if (typeof MATERIAL_TALENT_FRUIT !== "undefined") coerceInventoryMaterialSlot(MATERIAL_TALENT_FRUIT);
+    if (typeof MATERIAL_LIFE_POTION !== "undefined") coerceInventoryMaterialSlot(MATERIAL_LIFE_POTION);
+    if (typeof MATERIAL_PET_EXP_FRUIT !== "undefined") coerceInventoryMaterialSlot(MATERIAL_PET_EXP_FRUIT);
+    if (typeof MATERIAL_SECRET_REALM_WARP !== "undefined") coerceInventoryMaterialSlot(MATERIAL_SECRET_REALM_WARP);
+    if (typeof window !== "undefined" && typeof window.MATERIAL_YUQI_PACK === "string") {
+        coerceInventoryMaterialSlot(window.MATERIAL_YUQI_PACK);
     }
 }
 
 function getMaterialCount(id) {
     ensureInventoryMaterials();
-    var n = player.inventory.materials[id];
-    return typeof n === "number" && !isNaN(n) ? Math.max(0, Math.floor(n)) : 0;
+    if (!id || !player.inventory.materials) return 0;
+    return readInventoryMaterialCount(player.inventory.materials[id]);
 }
 
-function addMaterial(id, amount) {
+function addMaterial(id, amount, opts) {
+    opts = opts || {};
     ensureInventoryMaterials();
     amount = Math.floor(amount);
     if (!amount) return 0;
+
+    var useCloudQueue =
+        typeof window !== "undefined" &&
+        window.DONGTIAN_CLOUD_MODE &&
+        window.__dongtianCloudHydrated &&
+        amount > 0 &&
+        !opts.deferCloudSave &&
+        !opts.skipServerDelta &&
+        !opts.localOnly &&
+        typeof window.dongtianQueueMaterialDelta === "function";
+
+    if (useCloudQueue) {
+        window.dongtianQueueMaterialDelta(id, amount, opts);
+        return amount;
+    }
+
     var cur = getMaterialCount(id);
     var next = Math.max(0, cur + amount);
     player.inventory.materials[id] = next;
+    if (
+        typeof window !== "undefined" &&
+        window.DONGTIAN_CLOUD_MODE &&
+        typeof window.dongtianMarkPlayerMutation === "function"
+    ) {
+        window.dongtianMarkPlayerMutation();
+        if (!opts.deferCloudSave) {
+            var inCombat = typeof player === "object" && player && player.inCombat;
+            if (!inCombat && typeof saveData === "function") {
+                saveData({ forceCloud: true, playerMutation: true, skipMarkMutation: true });
+            } else if (typeof window.dongtianScheduleMaterialsCloudSave === "function") {
+                window.dongtianScheduleMaterialsCloudSave();
+            }
+        }
+    }
     return amount;
 }
 
@@ -216,16 +252,19 @@ function getDivineExtractFailLevelLoss(currentLvl) {
  * 神萃：成功 +1 级（每级全词条 +2%），上限 100 级（+200%）；失败按档位掉级
  * @returns {{ ok: boolean, message: string, success?: boolean }}
  */
-function tryGodEssenceInventoryItem(item) {
+function tryGodEssenceInventoryItem(item, opts) {
+    opts = opts || {};
     ensureInventoryMaterials();
     if (!item) return { ok: false, message: "无效遗器。" };
     var L = getDivineExtractLvl(item);
     if (L >= 100) return { ok: false, message: "神萃已达 +100（全属性 +200%）。" };
     var cost = getDivineExtractStoneCostForNextAttempt(L);
-    if (getMaterialCount(MATERIAL_GOD_ESSENCE_STONE) < cost) {
-        return { ok: false, message: "神萃石不足（需要 " + cost + " 枚）。" };
+    if (!opts.skipMaterialDeduct) {
+        if (getMaterialCount(MATERIAL_GOD_ESSENCE_STONE) < cost) {
+            return { ok: false, message: "神萃石不足（需要 " + cost + " 枚）。" };
+        }
+        addMaterial(MATERIAL_GOD_ESSENCE_STONE, -cost, { deferCloudSave: true });
     }
-    addMaterial(MATERIAL_GOD_ESSENCE_STONE, -cost);
     var rate = getDivineExtractSuccessPctForCurrentLvl(L) / 100;
     if (Math.random() < rate) {
         item.divineExtractLvl = L + 1;
@@ -345,18 +384,20 @@ function scaleEquipmentStatsInPlace(item, factor) {
  * 按目标星级消耗强化石（每星一枚），尝试强化行囊中的遗器（引用对象会被修改）
  * @returns {{ ok: boolean, message: string, item?: object }}
  */
-function tryEnhanceInventoryItem(item) {
+function tryEnhanceInventoryItem(item, opts) {
+    opts = opts || {};
     ensureInventoryMaterials();
     if (!item) return { ok: false, message: "无效遗器。" };
     var s = typeof item.enhanceStars === "number" ? Math.max(0, Math.min(10, Math.floor(item.enhanceStars))) : 0;
     if (s >= 10) return { ok: false, message: "此器已至十星，无法再强化。" };
     var targetStar = s + 1;
     var cost = getEnhanceStoneCostForTargetStar(targetStar);
-    if (getMaterialCount(MATERIAL_ENHANCE_STONE) < cost) {
-        return { ok: false, message: "强化石不足。" };
+    if (!opts.skipMaterialDeduct) {
+        if (getMaterialCount(MATERIAL_ENHANCE_STONE) < cost) {
+            return { ok: false, message: "强化石不足。" };
+        }
+        addMaterial(MATERIAL_ENHANCE_STONE, -cost, { deferCloudSave: true });
     }
-
-    addMaterial(MATERIAL_ENHANCE_STONE, -cost);
     var rate = getEnhanceSuccessPctForTargetStar(targetStar) / 100;
     var roll = Math.random();
 
@@ -401,14 +442,17 @@ function tryEnhanceInventoryItem(item) {
  * 消耗：第 1 次 1 枚，每次成功后再附魔 +1 枚，上限 10 枚/次。
  * @returns {{ ok: boolean, message: string, item?: object }}
  */
-function tryEnchantInventoryItem(item) {
+function tryEnchantInventoryItem(item, opts) {
+    opts = opts || {};
     ensureInventoryMaterials();
     if (!item) return { ok: false, message: "无效遗器。" };
     var cost = getEnchantStoneCostForNext(item);
-    if (getMaterialCount(MATERIAL_ENCHANT_STONE) < cost) {
-        return { ok: false, message: "附魔石不足。" };
+    if (!opts.skipMaterialDeduct) {
+        if (getMaterialCount(MATERIAL_ENCHANT_STONE) < cost) {
+            return { ok: false, message: "附魔石不足。" };
+        }
+        addMaterial(MATERIAL_ENCHANT_STONE, -cost, { deferCloudSave: true });
     }
-    addMaterial(MATERIAL_ENCHANT_STONE, -cost);
     var prevApply = getEnchantApplyCount(item);
     var rolled = rollEnchantTierAndPct();
     var oldPct = typeof item.enchantPct === "number" ? item.enchantPct : 0;
@@ -495,7 +539,9 @@ function tryRollEnhanceStoneDrop(logCombat, logDungeon) {
     var line = `残烬中凝出一枚<span class="Epic">${MATERIAL_ENHANCE_STONE_ZH}</span>，可淬炼遗器。`;
     if (logCombat && typeof addCombatLog === "function") addCombatLog(line);
     if (logDungeon && typeof addDungeonLog === "function") addDungeonLog(line);
-    if (typeof saveData === "function") saveData();
+    if (typeof saveData === "function" && !(typeof window !== "undefined" && window.DONGTIAN_CLOUD_MODE)) {
+        saveData();
+    }
     return true;
 }
 
@@ -508,6 +554,8 @@ function tryRollEnchantStoneDrop(logCombat, logDungeon) {
     var line = `器纹余烬凝作一枚<span class="Legendary">${MATERIAL_ENCHANT_STONE_ZH}</span>，可再炼遗器。`;
     if (logCombat && typeof addCombatLog === "function") addCombatLog(line);
     if (logDungeon && typeof addDungeonLog === "function") addDungeonLog(line);
-    if (typeof saveData === "function") saveData();
+    if (typeof saveData === "function" && !(typeof window !== "undefined" && window.DONGTIAN_CLOUD_MODE)) {
+        saveData();
+    }
     return true;
 }

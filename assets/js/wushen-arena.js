@@ -23,7 +23,10 @@
     }
 
     function playerNameBody() {
-        var n = typeof player !== "undefined" && player && player.name ? String(player.name) : "";
+        var n = "";
+        if (typeof player !== "undefined" && player && player.name) {
+            n = typeof formatDongtianDisplayName === "function" ? formatDongtianDisplayName(player.name) : String(player.name);
+        }
         return { playerName: n };
     }
 
@@ -162,27 +165,29 @@
         }
         var prev = document.getElementById("wushenSnapshotPreview");
         if (prev) {
-            if (res.snapshotPreview) {
-                var p = res.snapshotPreview;
-                var passLine = "";
-                if (p.combatPassivesActive) {
-                    passLine = " · 功法战斗效果已存档";
+            if (Object.prototype.hasOwnProperty.call(res, "snapshotPreview")) {
+                if (res.snapshotPreview) {
+                    var p = res.snapshotPreview;
+                    var passLine = "";
+                    if (p.combatPassivesActive) {
+                        passLine = " · 功法战斗效果已存档";
+                    }
+                    prev.textContent =
+                        "攻 " +
+                        (p.atk != null ? p.atk : "—") +
+                        " · 血 " +
+                        (p.hpMax != null ? p.hpMax : "—") +
+                        " · 防 " +
+                        (p.def != null ? p.def : "—") +
+                        " · 速 " +
+                        (p.atkSpd != null ? (typeof p.atkSpd === "number" && p.atkSpd.toFixed ? p.atkSpd.toFixed(2) : p.atkSpd) : "—") +
+                        " · 暴 " +
+                        (p.critRate != null ? p.critRate : "—") +
+                        "%" +
+                        passLine;
+                } else {
+                    prev.textContent = "未保存";
                 }
-                prev.textContent =
-                    "攻 " +
-                    (p.atk != null ? p.atk : "—") +
-                    " · 血 " +
-                    (p.hpMax != null ? p.hpMax : "—") +
-                    " · 防 " +
-                    (p.def != null ? p.def : "—") +
-                    " · 速 " +
-                    (p.atkSpd != null ? (typeof p.atkSpd === "number" && p.atkSpd.toFixed ? p.atkSpd.toFixed(2) : p.atkSpd) : "—") +
-                    " · 暴 " +
-                    (p.critRate != null ? p.critRate : "—") +
-                    "%" +
-                    passLine;
-            } else {
-                prev.textContent = "未保存";
             }
         }
         var cyc = document.getElementById("wushenCycleLabel");
@@ -361,13 +366,28 @@
     }
 
     function wushenArenaBarClick() {
-        if (typeof window.dongtianNetHubClickBlocked === "function" && window.dongtianNetHubClickBlocked()) return;
+        if (!window.DONGTIAN_CLOUD_MODE) {
+            if (typeof window.dongtianNetOfflineToast === "function") {
+                window.dongtianNetOfflineToast();
+            } else {
+                try {
+                    alert("目前为单机版无法运用这功能请加群902481027");
+                } catch (eAlert) {}
+            }
+            return;
+        }
         var btn = document.getElementById("wushenArenaOpenBtn");
         if (!btn) return;
         var m = document.getElementById("wushenArenaModal");
         if (isWushenModalShown(m)) {
             closeModal();
         } else {
+            if (typeof window.dongtianHubClosedByHighJie === "function" && window.dongtianHubClosedByHighJie()) {
+                if (typeof window.dongtianHubHighJieBlockAlert === "function") {
+                    window.dongtianHubHighJieBlockAlert("武神坛");
+                }
+                return;
+            }
             openModal();
         }
     }
@@ -394,6 +414,22 @@
     }
 
     window.openWuShenArenaModal = function () {
+        if (!window.DONGTIAN_CLOUD_MODE) {
+            if (typeof window.dongtianNetOfflineToast === "function") {
+                window.dongtianNetOfflineToast();
+            } else {
+                try {
+                    alert("目前为单机版无法运用这功能请加群902481027");
+                } catch (eAlert2) {}
+            }
+            return;
+        }
+        if (typeof window.dongtianHubClosedByHighJie === "function" && window.dongtianHubClosedByHighJie()) {
+            if (typeof window.dongtianHubHighJieBlockAlert === "function") {
+                window.dongtianHubHighJieBlockAlert("武神坛");
+            }
+            return;
+        }
         openModal();
     };
     window.closeWuShenArenaModal = function () {
@@ -420,6 +456,9 @@
             toast("切磋数据不完整", true);
             return;
         }
+        try {
+            window.__wushenArenaAwaitingDefeatClaim = null;
+        } catch (eWsClr0) {}
         closeModal();
         var snap = res.defenderSnapshot;
         var name = res.opponentName || "修士";
@@ -453,11 +492,28 @@
         player.inCombat = true;
         if (typeof showCombatInfo === "function") showCombatInfo();
         if (typeof startCombat === "function") startCombat();
-        if (typeof saveData === "function") saveData();
+        /** 斗法进行中勿冲洞天主档（saveData 在联网模式会被拦截，但须清掉排队中的 debounce，避免与结算竞态） */
+        if (typeof window.dongtianCancelBeforeServerPull === "function") {
+            window.dongtianCancelBeforeServerPull();
+        } else if (typeof window.cancelPendingDongtianCloudSave === "function") {
+            window.cancelPendingDongtianCloudSave();
+        }
     };
 
     window.finishWushenArenaCombat = function (won, token) {
         if (!token) return;
+        try {
+            if (window.__wushenArenaLastCompleteToken === token) return;
+            window.__wushenArenaLastCompleteToken = token;
+        } catch (eWsDedup) {}
+        if (typeof window.dongtianCancelBeforeServerPull === "function") {
+            window.dongtianCancelBeforeServerPull();
+        } else if (typeof window.cancelPendingDongtianCloudSave === "function") {
+            window.cancelPendingDongtianCloudSave();
+        }
+        try {
+            window.__wushenArenaCombatSettling = true;
+        } catch (eWsFl) {}
         api("POST", "/api/dongtian-arena/challenge/complete", { token: token, won: !!won })
             .then(function (res) {
                 if (!res || !res.ok) throw new Error((res && res.message) || "切磋结算失败");
@@ -484,13 +540,76 @@
                               : "上次切磋：胜"
                         : "上次切磋：负";
                 }
-                openModal();
+                if (won) {
+                    openModal();
+                }
                 return loadAll();
             })
             .catch(function (e) {
                 toast(e.message || String(e), true);
                 openModal();
                 loadAll();
+            })
+            .finally(function () {
+                try {
+                    window.__wushenArenaCombatSettling = false;
+                } catch (eWsDone) {}
+                try {
+                    var awaitingDefeatUi =
+                        typeof window !== "undefined" && window.__wushenArenaAwaitingDefeatClaim;
+                    if (typeof enemy !== "undefined" && enemy && enemy.wushenArena && !awaitingDefeatUi) {
+                        try {
+                            delete enemy.wushenArena;
+                        } catch (eRmEa) {
+                            enemy.wushenArena = null;
+                        }
+                    }
+                    if (typeof dungeon !== "undefined" && dungeon && dungeon.status && !awaitingDefeatUi) {
+                        dungeon.status.event = false;
+                    }
+                    /** 武神坛切磋不计入秘境战败：结算后回满气血再落盘，避免 hp=0 写入云档导致重进/拉档莫名 0 血 */
+                    try {
+                        if (typeof calculateStats === "function") calculateStats();
+                        if (
+                            typeof player !== "undefined" &&
+                            player &&
+                            player.stats &&
+                            Number(player.stats.hpMax) > 0
+                        ) {
+                            player.stats.hp = player.stats.hpMax;
+                        }
+                        if (typeof playerDead !== "undefined" && !awaitingDefeatUi) playerDead = false;
+                    } catch (eWsHp) {}
+                    if (window.DONGTIAN_CLOUD_MODE) {
+                        /** 武神榜只改独立排行榜；洞天主档仅冲斗法中的气血/状态，勿 GET save 拉档以免盖未落盘行囊 */
+                        var persistWushenCombat =
+                            typeof window.dongtianFlushCloudSaveImmediate === "function"
+                                ? window.dongtianFlushCloudSaveImmediate.bind(window)
+                                : typeof window.__dongtianCloudFlushSave === "function"
+                                  ? function () {
+                                        window.__dongtianCloudFlushSave({
+                                            immediate: true,
+                                            forceCloud: true,
+                                            playerMutation: true,
+                                        });
+                                    }
+                                  : typeof saveData === "function"
+                                    ? function () {
+                                          saveData({ forceCloud: true, playerMutation: true });
+                                      }
+                                    : function () {};
+                        var pending =
+                            typeof window.dongtianCloudSavePending === "function" &&
+                            window.dongtianCloudSavePending();
+                        if (pending && typeof window.dongtianCloudFlushSaveWhenDirty === "function") {
+                            window.dongtianCloudFlushSaveWhenDirty(3500).finally(persistWushenCombat);
+                        } else {
+                            persistWushenCombat();
+                        }
+                    } else if (typeof saveData === "function") {
+                        saveData();
+                    }
+                } catch (eWsSave) {}
             });
     };
 })();

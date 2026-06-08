@@ -7,18 +7,21 @@ const MATERIAL_SOCKET_OPENER = "socket_opener";
 const MATERIAL_SOCKET_OPENER_ZH = "开孔器";
 const MATERIAL_TALENT_FRUIT = "talent_fruit";
 const MATERIAL_TALENT_FRUIT_ZH = "天赋果";
+/** 统领及以上妖躯击杀时，天赋果随机掉落概率（与开孔器掷骰独立） */
+const TALENT_FRUIT_ELITE_KILL_DROP_CHANCE = 0.05;
 const MATERIAL_LIFE_POTION = "life_potion";
 const MATERIAL_LIFE_POTION_ZH = "生命药剂";
 /** 灵宠经验果实：使用后若干场斗法中，击杀分流给灵宠的修为翻倍（可叠加场次） */
 const MATERIAL_PET_EXP_FRUIT = "pet_exp_fruit";
 const MATERIAL_PET_EXP_FRUIT_ZH = "灵宠经验果实";
 const PET_EXP_DOUBLE_COMBATS_PER_FRUIT = 100;
+/** 秘境穿梭器：消耗 1 个，跳转至指定秘境层（仅可高于当前层，且不超过历史最高-1 的第 1 劫） */
 const MATERIAL_SECRET_REALM_WARP = "secret_realm_warp";
 const MATERIAL_SECRET_REALM_WARP_ZH = "秘境穿梭器";
 /** 秘境最后一劫镇守（guardian）击杀时的掉落概率 */
 const PET_EXP_FRUIT_GUARDIAN_DROP_CHANCE = 0.1;
-/** 劫数 20 的 BOSS（镇守/主宰）击杀时，秘境穿梭器掉落概率 */
-const SECRET_REALM_WARP_BOSS_DROP_CHANCE = 0.5;
+/** 秘境最后一劫层主（guardian）击杀时掉落秘境穿梭器的概率 */
+const SECRET_REALM_WARP_GUARDIAN_DROP_CHANCE = 0.5;
 /** 妖躯品质档 ≥ 此索引（0=凡物 … 5=头领）时可有概率掉落 */
 const LIFE_POTION_MIN_QUALITY_TIER = 5;
 const LIFE_POTION_DROP_CHANCE = 0.02;
@@ -53,27 +56,40 @@ const GEM_KIND_ROLL_POOL = ["hp", "atk", "def", "atkSpd", "critDmg"];
 function ensureGemMaterialsInInventory() {
     if (typeof ensureInventoryMaterials === "function") ensureInventoryMaterials();
     if (!player || !player.inventory) return;
-    if (typeof player.inventory.materials[MATERIAL_GEM_PACK] !== "number" || isNaN(player.inventory.materials[MATERIAL_GEM_PACK])) {
-        player.inventory.materials[MATERIAL_GEM_PACK] = 0;
-    }
-    if (typeof player.inventory.materials[MATERIAL_SOCKET_OPENER] !== "number" || isNaN(player.inventory.materials[MATERIAL_SOCKET_OPENER])) {
-        player.inventory.materials[MATERIAL_SOCKET_OPENER] = 0;
-    }
-    if (typeof player.inventory.materials[MATERIAL_TALENT_FRUIT] !== "number" || isNaN(player.inventory.materials[MATERIAL_TALENT_FRUIT])) {
-        player.inventory.materials[MATERIAL_TALENT_FRUIT] = 0;
-    }
-    if (typeof player.inventory.materials[MATERIAL_LIFE_POTION] !== "number" || isNaN(player.inventory.materials[MATERIAL_LIFE_POTION])) {
-        player.inventory.materials[MATERIAL_LIFE_POTION] = 0;
-    }
-    if (typeof MATERIAL_PET_EXP_FRUIT !== "undefined") {
-        if (typeof player.inventory.materials[MATERIAL_PET_EXP_FRUIT] !== "number" || isNaN(player.inventory.materials[MATERIAL_PET_EXP_FRUIT])) {
-            player.inventory.materials[MATERIAL_PET_EXP_FRUIT] = 0;
+    if (typeof readInventoryMaterialCount === "function") {
+        if (typeof MATERIAL_GEM_PACK !== "undefined") {
+            player.inventory.materials[MATERIAL_GEM_PACK] = readInventoryMaterialCount(
+                player.inventory.materials[MATERIAL_GEM_PACK]
+            );
+        }
+        if (typeof MATERIAL_SOCKET_OPENER !== "undefined") {
+            player.inventory.materials[MATERIAL_SOCKET_OPENER] = readInventoryMaterialCount(
+                player.inventory.materials[MATERIAL_SOCKET_OPENER]
+            );
+        }
+        if (typeof MATERIAL_TALENT_FRUIT !== "undefined") {
+            player.inventory.materials[MATERIAL_TALENT_FRUIT] = readInventoryMaterialCount(
+                player.inventory.materials[MATERIAL_TALENT_FRUIT]
+            );
+        }
+        if (typeof MATERIAL_LIFE_POTION !== "undefined") {
+            player.inventory.materials[MATERIAL_LIFE_POTION] = readInventoryMaterialCount(
+                player.inventory.materials[MATERIAL_LIFE_POTION]
+            );
+        }
+        if (typeof MATERIAL_PET_EXP_FRUIT !== "undefined") {
+            player.inventory.materials[MATERIAL_PET_EXP_FRUIT] = readInventoryMaterialCount(
+                player.inventory.materials[MATERIAL_PET_EXP_FRUIT]
+            );
+        }
+        if (typeof MATERIAL_SECRET_REALM_WARP !== "undefined") {
+            player.inventory.materials[MATERIAL_SECRET_REALM_WARP] = readInventoryMaterialCount(
+                player.inventory.materials[MATERIAL_SECRET_REALM_WARP]
+            );
         }
     }
-    if (typeof MATERIAL_SECRET_REALM_WARP !== "undefined") {
-        if (typeof player.inventory.materials[MATERIAL_SECRET_REALM_WARP] !== "number" || isNaN(player.inventory.materials[MATERIAL_SECRET_REALM_WARP])) {
-            player.inventory.materials[MATERIAL_SECRET_REALM_WARP] = 0;
-        }
+    if (typeof window.ensureDongtianYuqiMaterialsInInventory === "function") {
+        window.ensureDongtianYuqiMaterialsInInventory();
     }
 }
 
@@ -97,10 +113,12 @@ function getGemStackCount(kind, level) {
     var m = player.inventory.gems[kind];
     if (!m) return 0;
     var n = m[level];
-    return typeof n === "number" && !isNaN(n) ? Math.max(0, Math.floor(n)) : 0;
+    if (typeof n === "number" && !isNaN(n)) return Math.max(0, Math.floor(n));
+    var parsed = parseInt(n, 10);
+    return isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 0;
 }
 
-function addGemStack(kind, level, qty) {
+function addGemStack(kind, level, qty, opts) {
     ensurePlayerGemStacks();
     qty = Math.floor(Number(qty) || 0);
     if (!qty) return 0;
@@ -110,6 +128,20 @@ function addGemStack(kind, level, qty) {
     var m = player.inventory.gems[kind];
     var cur = getGemStackCount(kind, level);
     m[level] = Math.max(0, cur + qty);
+    if (
+        typeof window !== "undefined" &&
+        qty !== 0 &&
+        !(opts && opts.deferPersist) &&
+        typeof window.dongtianMarkPlayerMutation === "function"
+    ) {
+        window.dongtianMarkPlayerMutation();
+        var inCombat = typeof player === "object" && player && player.inCombat;
+        if (!inCombat && typeof saveData === "function") {
+            saveData({ forceCloud: true, playerMutation: true, skipMarkMutation: true });
+        } else if (typeof window.dongtianScheduleMaterialsCloudSave === "function") {
+            window.dongtianScheduleMaterialsCloudSave();
+        }
+    }
     return qty;
 }
 
@@ -118,6 +150,15 @@ function consumeGemStack(kind, level, qty) {
     qty = Math.min(cur, Math.max(0, Math.floor(Number(qty) || 0)));
     if (!qty) return false;
     player.inventory.gems[kind][level] = cur - qty;
+    if (typeof window !== "undefined" && typeof window.dongtianMarkPlayerMutation === "function") {
+        window.dongtianMarkPlayerMutation();
+        var inCombat = typeof player === "object" && player && player.inCombat;
+        if (!inCombat && typeof saveData === "function") {
+            saveData({ forceCloud: true, playerMutation: true, skipMarkMutation: true });
+        } else if (typeof window.dongtianScheduleMaterialsCloudSave === "function") {
+            window.dongtianScheduleMaterialsCloudSave();
+        }
+    }
     return true;
 }
 
@@ -146,6 +187,17 @@ function gemKindEffectFootnoteZH(kind) {
         default:
             return "";
     }
+}
+
+/** 遗器是否已镶嵌宝石（有则不可修仙市场上架/赠送，须先卸下） */
+function equipmentHasSocketedGems(item) {
+    if (!item || typeof item !== "object") return false;
+    normalizeEquipmentGemFields(item);
+    for (var i = 0; i < item.gemSlots.length; i++) {
+        var g = item.gemSlots[i];
+        if (g && typeof g === "object" && g.kind) return true;
+    }
+    return false;
 }
 
 function normalizeEquipmentGemFields(item) {
@@ -215,13 +267,16 @@ function getGemBonusLikePet() {
     return z;
 }
 
-function tryUseSocketOpenerOnItem(item) {
+function tryUseSocketOpenerOnItem(item, opts) {
+    opts = opts || {};
     ensureGemMaterialsInInventory();
     normalizeEquipmentGemFields(item);
     if (item.socketCount >= 3) return { ok: false, message: "此器已开至三孔，天机难再扩。" };
-    var n = typeof getMaterialCount === "function" ? getMaterialCount(MATERIAL_SOCKET_OPENER) : 0;
-    if (n < 1) return { ok: false, message: "开孔器不足。" };
-    if (typeof addMaterial === "function") addMaterial(MATERIAL_SOCKET_OPENER, -1);
+    if (!opts.skipMaterialDeduct) {
+        var n = typeof getMaterialCount === "function" ? getMaterialCount(MATERIAL_SOCKET_OPENER) : 0;
+        if (n < 1) return { ok: false, message: "开孔器不足。" };
+        if (typeof addMaterial === "function") addMaterial(MATERIAL_SOCKET_OPENER, -1);
+    }
     item.socketCount = item.socketCount + 1;
     item.gemSlots.push(null);
     return { ok: true, message: "灵纹一绽，器表隐孔已成，可嵌灵石。" };
@@ -326,12 +381,15 @@ function rollGemPackLoot() {
  * 使用灵宠经验果实：增加「接下来若干场斗法」灵宠击杀修为翻倍次数（叠加）。
  * @returns {{ ok: boolean, message?: string }}
  */
-function tryUsePetExpFruit() {
+function tryUsePetExpFruit(opts) {
+    opts = opts || {};
     ensureGemMaterialsInInventory();
     if (typeof MATERIAL_PET_EXP_FRUIT === "undefined") return { ok: false, message: "材料未定义。" };
-    var c = typeof getMaterialCount === "function" ? getMaterialCount(MATERIAL_PET_EXP_FRUIT) : 0;
-    if (c < 1) return { ok: false, message: "没有灵宠经验果实。" };
-    if (typeof addMaterial === "function") addMaterial(MATERIAL_PET_EXP_FRUIT, -1);
+    if (!opts.skipMaterialDeduct) {
+        var c = typeof getMaterialCount === "function" ? getMaterialCount(MATERIAL_PET_EXP_FRUIT) : 0;
+        if (c < 1) return { ok: false, message: "没有灵宠经验果实。" };
+        if (typeof addMaterial === "function") addMaterial(MATERIAL_PET_EXP_FRUIT, -1);
+    }
     if (typeof player !== "undefined" && player) {
         var cur =
             typeof player.petExpDoubleCombatsRemaining === "number" && !isNaN(player.petExpDoubleCombatsRemaining)
@@ -350,37 +408,49 @@ function tryUsePetExpFruit() {
     };
 }
 
-function tryOpenGemMaterialPack() {
+function tryOpenGemMaterialPack(opts) {
+    opts = opts || {};
     ensureGemMaterialsInInventory();
-    var c = typeof getMaterialCount === "function" ? getMaterialCount(MATERIAL_GEM_PACK) : 0;
-    if (c < 1) return { ok: false, message: "没有宝石材料包。" };
-    if (typeof addMaterial === "function") addMaterial(MATERIAL_GEM_PACK, -1);
+    if (!opts.skipMaterialDeduct) {
+        var c = typeof getMaterialCount === "function" ? getMaterialCount(MATERIAL_GEM_PACK) : 0;
+        if (c < 1) return { ok: false, message: "没有宝石材料包。" };
+        if (typeof addMaterial === "function") addMaterial(MATERIAL_GEM_PACK, -1);
+    }
     var loot = rollGemPackLoot();
     var zhParts = [];
     for (var i = 0; i < loot.length; i++) {
-        addGemStack(loot[i].kind, loot[i].level, 1);
+        addGemStack(loot[i].kind, loot[i].level, 1, { deferPersist: true });
         zhParts.push(GEM_KIND_ZH[loot[i].kind] + "宝石 1级");
+    }
+    if (typeof window !== "undefined" && typeof window.dongtianMarkPlayerMutation === "function") {
+        window.dongtianMarkPlayerMutation();
     }
     return { ok: true, message: "封禁一开，灵砂凝形：获得 " + zhParts.join("、") + "。" };
 }
 
 /** 连续启封多份材料包，汇总产出（用于行囊批量使用） */
-function tryOpenGemMaterialPacksBatch(want) {
+function tryOpenGemMaterialPacksBatch(want, opts) {
+    opts = opts || {};
     ensureGemMaterialsInInventory();
-    var c = typeof getMaterialCount === "function" ? getMaterialCount(MATERIAL_GEM_PACK) : 0;
-    if (c < 1) return { ok: false, message: "没有宝石材料包。" };
     var n = Math.floor(Number(want) || 0);
-    if (n < 1) return { ok: false, message: "份数至少为 1。" };
-    n = Math.min(n, c);
+    if (n < 1) return { ok: false, message: "份数至少为 1。", effectFailed: true };
+    if (!opts.skipMaterialDeduct) {
+        var c = typeof getMaterialCount === "function" ? getMaterialCount(MATERIAL_GEM_PACK) : 0;
+        if (c < 1) return { ok: false, message: "没有宝石材料包。" };
+        n = Math.min(n, c);
+        if (typeof addMaterial === "function") addMaterial(MATERIAL_GEM_PACK, -n);
+    }
     var agg = {};
     for (var i = 0; i < n; i++) {
-        if (typeof addMaterial === "function") addMaterial(MATERIAL_GEM_PACK, -1);
         var loot = rollGemPackLoot();
         for (var j = 0; j < loot.length; j++) {
-            addGemStack(loot[j].kind, loot[j].level, 1);
+            addGemStack(loot[j].kind, loot[j].level, 1, { deferPersist: true });
             var key = loot[j].kind + "\t" + loot[j].level;
             agg[key] = (agg[key] || 0) + 1;
         }
+    }
+    if (typeof window !== "undefined" && typeof window.dongtianMarkPlayerMutation === "function") {
+        window.dongtianMarkPlayerMutation();
     }
     var parts = [];
     for (var key in agg) {
@@ -450,7 +520,7 @@ function tryRollTalentFruitFromEliteKill() {
     if (typeof enemy === "undefined" || !enemy) return;
     var qt = typeof enemy.qualityTier === "number" ? enemy.qualityTier : 0;
     if (qt < 6) return;
-    if (Math.random() >= 0.1) return;
+    if (Math.random() >= TALENT_FRUIT_ELITE_KILL_DROP_CHANCE) return;
     ensureGemMaterialsInInventory();
     if (typeof addMaterial === "function") addMaterial(MATERIAL_TALENT_FRUIT, 1);
     if (typeof addCombatLog === "function") {
@@ -498,6 +568,27 @@ function tryRollPetExpFruitFromDungeonBossKill() {
     }
 }
 
+/** 秘境：仅「最后一劫」层主（guardian）击杀时按 SECRET_REALM_WARP_GUARDIAN_DROP_CHANCE 概率掉落 */
+function tryRollSecretRealmWarpFromDungeonBossKill() {
+    if (typeof escort !== "undefined" && escort && escort.active) return;
+    if (typeof mining !== "undefined" && mining && mining.active) return;
+    if (typeof dungeon === "undefined" || !dungeon || !dungeon.status || !dungeon.status.exploring) return;
+    if (typeof enemy === "undefined" || !enemy) return;
+    if (enemy.bossRole !== "guardian") return;
+    if (!dungeon.progress) return;
+    var room = Math.max(1, Math.floor(Number(dungeon.progress.room) || 1));
+    var rl = Math.max(1, Math.floor(Number(dungeon.progress.roomLimit) || 20));
+    if (room !== rl) return;
+    if (Math.random() >= SECRET_REALM_WARP_GUARDIAN_DROP_CHANCE) return;
+    ensureGemMaterialsInInventory();
+    if (typeof addMaterial === "function" && typeof MATERIAL_SECRET_REALM_WARP !== "undefined") {
+        addMaterial(MATERIAL_SECRET_REALM_WARP, 1);
+    }
+    if (typeof addCombatLog === "function" && typeof MATERIAL_SECRET_REALM_WARP_ZH !== "undefined") {
+        addCombatLog(`层主陨落，遗匣中现<span class="Legendary">${MATERIAL_SECRET_REALM_WARP_ZH}</span> ×1。`);
+    }
+}
+
 function tryRollLifePotionFromQualityKill() {
     if (typeof escort !== "undefined" && escort && escort.active) return;
     if (typeof mining !== "undefined" && mining && mining.active) return;
@@ -509,26 +600,6 @@ function tryRollLifePotionFromQualityKill() {
     if (typeof addMaterial === "function") addMaterial(MATERIAL_LIFE_POTION, 1);
     if (typeof addCombatLog === "function") {
         addCombatLog(`残躯余蕴未散，你收得<span class="Rare">${MATERIAL_LIFE_POTION_ZH}</span> ×1。`);
-    }
-}
-
-/** 秘境：劫数 20 的 BOSS（guardian/sboss）击杀时，50% 概率掉落秘境穿梭器 */
-function tryRollSecretRealmWarpFromJie20BossKill() {
-    if (typeof escort !== "undefined" && escort && escort.active) return;
-    if (typeof mining !== "undefined" && mining && mining.active) return;
-    if (typeof dungeon === "undefined" || !dungeon || !dungeon.status || !dungeon.status.exploring) return;
-    if (typeof enemy === "undefined" || !enemy) return;
-    if (enemy.bossRole !== "guardian" && enemy.bossRole !== "sboss") return;
-    if (!dungeon.progress) return;
-    var room = Math.max(1, Math.floor(Number(dungeon.progress.room) || 1));
-    if (room !== 20) return;
-    if (Math.random() >= SECRET_REALM_WARP_BOSS_DROP_CHANCE) return;
-    ensureGemMaterialsInInventory();
-    if (typeof addMaterial === "function" && typeof MATERIAL_SECRET_REALM_WARP !== "undefined") {
-        addMaterial(MATERIAL_SECRET_REALM_WARP, 1);
-    }
-    if (typeof addCombatLog === "function" && typeof MATERIAL_SECRET_REALM_WARP_ZH !== "undefined") {
-        addCombatLog(`界纹震鸣，你收得<span class="Legendary">${MATERIAL_SECRET_REALM_WARP_ZH}</span> ×1。`);
     }
 }
 
@@ -604,3 +675,7 @@ function openGemInlayChooser(slotIndex, onChosen) {
         }
     }
 }
+
+try {
+    window.equipmentHasSocketedGems = equipmentHasSocketedGems;
+} catch (eGemEx) {}

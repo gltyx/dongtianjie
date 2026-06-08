@@ -86,13 +86,19 @@
 
     /** 层数越高：越容易抽到 100–149 高阶词条；基础池内也更偏向后半索引 */
     window.pickEnemyAffixIndex = function (floor) {
+        if (typeof window !== "undefined" && window.__dongtianDragonTowerBuilding) return -1;
+        if (typeof window !== "undefined" && window.__dongtianDemonTowerBuilding) return -1;
         var f = Math.max(1, Math.min(floor || 1, 100));
         var highChance = 0.12 + ((f - 1) / 99) * 0.48;
-        if (Math.random() < highChance) {
-            return 100 + Math.floor(Math.random() * 50);
+        var cloud = typeof window !== "undefined" && window.DONGTIAN_CLOUD_MODE && typeof dongtianEventSeeded01 === "function";
+        var rHigh = cloud ? dongtianEventSeeded01("axHigh|" + f) : Math.random();
+        if (rHigh < highChance) {
+            var rHi = cloud ? dongtianEventSeeded01("axHiIdx|" + f) : Math.random();
+            return 100 + Math.floor(rHi * 50);
         }
         var bias = Math.floor(((f - 1) / 100) * 28);
-        var idx = Math.floor(Math.random() * 100) + bias;
+        var rLo = cloud ? dongtianEventSeeded01("axLoIdx|" + f) : Math.random();
+        var idx = Math.floor(rLo * 100) + bias;
         return Math.min(99, idx);
     };
 
@@ -122,13 +128,18 @@
         q.loot = q.loot * QUALITY_LOOT_MULT_UP;
     }
 
-    function pickWeighted(weights) {
+    function pickWeighted(weights, salt) {
         var sum = 0;
         var k;
         for (k = 0; k < weights.length; k++) {
             sum += weights[k];
         }
-        var r = Math.random() * sum;
+        var r;
+        if (typeof window !== "undefined" && window.DONGTIAN_CLOUD_MODE && typeof dongtianEventSeeded01 === "function") {
+            r = dongtianEventSeeded01("affw|" + String(salt || "w")) * sum;
+        } else {
+            r = Math.random() * sum;
+        }
         var acc = 0;
         for (k = 0; k < weights.length; k++) {
             acc += weights[k];
@@ -140,6 +151,8 @@
     }
 
     window.pickEnemyQualityTier = function (floor, condition) {
+        if (typeof window !== "undefined" && window.__dongtianDragonTowerBuilding) return 0;
+        if (typeof window !== "undefined" && window.__dongtianDemonTowerBuilding) return 0;
         var f = Math.max(1, floor || 1);
         var w = [18, 16, 14, 12, 10, 8, 6, 4, 2, 1];
         var i;
@@ -156,6 +169,6 @@
                 w[i] *= i >= 5 ? 2.2 + (i - 5) * 0.45 : i >= 2 ? 0.5 : 0.12;
             }
         }
-        return pickWeighted(w);
+        return pickWeighted(w, "qt|" + f + "|" + (condition != null ? String(condition) : ""));
     };
 })();
