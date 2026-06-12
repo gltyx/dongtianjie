@@ -375,6 +375,16 @@ function clearProfileTabRefreshTimer() {
 
 var DONGTIAN_JIE_CHANGELOG_HTML =
     '<div class="changelog-ver">' +
+    '<h4 class="changelog-h4">2.3 更新</h4>' +
+    "<ul class=\"changelog-list\">" +
+    "<li><strong>修仙股票：</strong>；可从菜单仙府玉牒 → 休闲进入。30 只仙股、灵石买卖、资产面板、仙股榜与灵石商场；行情每 10 分钟天机波动。</li>" +
+    "<li><strong>灵石商场：</strong>各档每日限购 1 次，兑换奖励 <strong>御器材料包 ×50</strong>。</li>" +
+    "<li><strong>敌势与遗器：</strong>仅气血/力道/护体受敌势加成；身法/吸血/会心/暴伤封顶不受敌势影响；(本层怪物保底)。</li>" +
+    "<li><strong>怪物会心/爆伤：</strong>守劫者会心上限 <strong>10%</strong>、爆伤上限 <strong>100%</strong>。</li>" +
+    "<li><strong>秘境修为入账：</strong>击杀修为按层分段封顶（6 层起阶梯递增）；第 35 层起入账倍率提高。</li>" +
+    "<li>读档时会对背包与身负遗器按新敌势规则自动迁移封顶一次。</li>" +
+    "</ul></div>" +
+    '<div class="changelog-ver changelog-ver--older">' +
     '<h4 class="changelog-h4">洞天劫 2.2</h4>' +
     "<ul class=\"changelog-list\">" +
     "<li><strong>2.2 大版本：</strong>本版更新了大量新副本、新玩法与新内容，洞天枢纽与秘境之外的修行维度显著扩展，可探索、可养成、可挑战的内容比 2.0 丰富许多。</li>" +
@@ -4077,6 +4087,7 @@ window.initDongtianCloudMarketAndArenaUi = function () {
         if (typeof window.initDongtianForgeUI === "function") window.initDongtianForgeUI();
         if (typeof window.initDongtianLinggenXuemaiUI === "function") window.initDongtianLinggenXuemaiUI();
         if (typeof window.initDongtianYuqiUI === "function") window.initDongtianYuqiUI();
+        if (typeof window.initDongtianStockUI === "function") window.initDongtianStockUI();
         if (typeof window.dongtianSyncHubFeaturesJieLock === "function") window.dongtianSyncHubFeaturesJieLock();
         if (typeof window.hookDongtianEmbedModalViewportObservers === "function") {
             window.hookDongtianEmbedModalViewportObservers();
@@ -4106,6 +4117,7 @@ window.initDongtianStandaloneHubUi = function () {
         if (typeof window.initDongtianPetEquipUI === "function") window.initDongtianPetEquipUI();
         if (typeof window.initDongtianForgeUI === "function") window.initDongtianForgeUI();
         if (typeof window.initDongtianYuqiUI === "function") window.initDongtianYuqiUI();
+        if (typeof window.initDongtianStockUI === "function") window.initDongtianStockUI();
     } catch (eStandaloneHub) {}
 };
 
@@ -4191,6 +4203,13 @@ function dilaoGameBoot() {
     if (typeof repairAllPlayerEquipmentToFloorScalingCap === "function" && player && !player.equipmentEnemyScalingCeilingMigrate2026) {
         repairAllPlayerEquipmentToFloorScalingCap();
         player.equipmentEnemyScalingCeilingMigrate2026 = true;
+        if (typeof window.dongtianPersistBootSave === "function") window.dongtianPersistBootSave();
+        else if (typeof saveData === "function") saveData();
+    }
+    /** 敌势对遗器：仅 hp/atk/def 吃敌势、副属性封顶 M=0、EXCESS_RATIO=0.001、掷骰取 max(存档,层保底)（对齐 dilao） */
+    if (typeof repairAllPlayerEquipmentToFloorScalingCap === "function" && player && !player.equipmentEnemyScalingDilaoMigrate2026) {
+        repairAllPlayerEquipmentToFloorScalingCap();
+        player.equipmentEnemyScalingDilaoMigrate2026 = true;
         if (typeof window.dongtianPersistBootSave === "function") window.dongtianPersistBootSave();
         else if (typeof saveData === "function") saveData();
     }

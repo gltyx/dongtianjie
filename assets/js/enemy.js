@@ -24,15 +24,53 @@ let enemy = {
 
 var CURSE_ENEMY_STAT_MULTIPLIER = 2.8;
 var DUNGEON_EXP_REWARD_LVL_CAP_BONUS = 5;
-var DONGTIAN_ENEMY_CRIT_RATE_CAP = 20;
-var DONGTIAN_ENEMY_CRIT_DMG_CAP = 500;
-/** 击杀修为最终入账上限：≤ CAP_FROM_FLOOR 层为 FINAL_CAP_BASE；其后每层 +FINAL_CAP_STEP（再经 MONSTER_EXP_DROP_MULT 反推 expBase 顶） */
+var DONGTIAN_ENEMY_CRIT_RATE_CAP = 10;
+var DONGTIAN_ENEMY_CRIT_DMG_CAP = 100;
+/** 击杀修为最终入账上限（finalCap）：≤ CAP_FROM_FLOOR 为 FINAL_CAP_BASE；其后分段累加；入账 = expBase × 层数倍率（≤34 层 0.15，35 层起 1） */
 var DONGTIAN_MONSTER_EXP_REWARD_CAP_FROM_FLOOR = 5;
 var DONGTIAN_MONSTER_EXP_REWARD_FINAL_CAP_BASE = 150000;
-var DONGTIAN_MONSTER_EXP_REWARD_FINAL_CAP_STEP = 10000;
+/** 6 层起分段每层 finalCap 增量：[6–34]+1万 … [95+]+119亿（见 getDongtianMonsterExpRewardFinalCapForFloor） */
+var DONGTIAN_MONSTER_EXP_REWARD_FINAL_CAP_TIERS = [
+    { toFloor: 34, step: 10000 },
+    { toFloor: 38, step: 20000 },
+    { toFloor: 42, step: 50000 },
+    { toFloor: 46, step: 120000 },
+    { toFloor: 50, step: 270000 },
+    { toFloor: 54, step: 650000 },
+    { toFloor: 58, step: 1450000 },
+    { toFloor: 62, step: 3470000 },
+    { toFloor: 66, step: 8340000 },
+    { toFloor: 70, step: 21000000 },
+    { toFloor: 74, step: 49000000 },
+    { toFloor: 78, step: 125000000 },
+    { toFloor: 82, step: 300000000 },
+    { toFloor: 86, step: 715000000 },
+    { toFloor: 90, step: 1847000000 },
+    { toFloor: 94, step: 4662000000 },
+    { toFloor: Infinity, step: 11900000000 },
+];
 var MONSTER_EXP_DROP_MULT = 0.15;
+/** ≤ 此层数击杀修为入账仍 × MONSTER_EXP_DROP_MULT（0.15）；更高层改为 × DONGTIAN_MONSTER_EXP_DROP_MULT_HIGH */
+var DONGTIAN_MONSTER_EXP_DROP_MULT_FLOOR_SPLIT = 34;
+var DONGTIAN_MONSTER_EXP_DROP_MULT_HIGH = 1;
 
-function getDongtianMonsterExpRewardExpBaseCapForFloor(floor) {
+function getDongtianMonsterExpDropMultForFloor(floor) {
+    var f = Math.max(1, Math.floor(Number(floor) || 1));
+    var split =
+        typeof DONGTIAN_MONSTER_EXP_DROP_MULT_FLOOR_SPLIT === "number" && isFinite(DONGTIAN_MONSTER_EXP_DROP_MULT_FLOOR_SPLIT)
+            ? Math.max(1, Math.floor(DONGTIAN_MONSTER_EXP_DROP_MULT_FLOOR_SPLIT))
+            : 34;
+    if (f <= split) {
+        return typeof MONSTER_EXP_DROP_MULT === "number" && MONSTER_EXP_DROP_MULT > 0 ? MONSTER_EXP_DROP_MULT : 0.15;
+    }
+    return typeof DONGTIAN_MONSTER_EXP_DROP_MULT_HIGH === "number" &&
+        isFinite(DONGTIAN_MONSTER_EXP_DROP_MULT_HIGH) &&
+        DONGTIAN_MONSTER_EXP_DROP_MULT_HIGH > 0
+        ? DONGTIAN_MONSTER_EXP_DROP_MULT_HIGH
+        : 1;
+}
+
+function getDongtianMonsterExpRewardFinalCapForFloor(floor) {
     var f = Math.max(1, Math.floor(Number(floor) || 1));
     var fromF =
         typeof DONGTIAN_MONSTER_EXP_REWARD_CAP_FROM_FLOOR === "number" && isFinite(DONGTIAN_MONSTER_EXP_REWARD_CAP_FROM_FLOOR)
@@ -42,12 +80,31 @@ function getDongtianMonsterExpRewardExpBaseCapForFloor(floor) {
         typeof DONGTIAN_MONSTER_EXP_REWARD_FINAL_CAP_BASE === "number" && isFinite(DONGTIAN_MONSTER_EXP_REWARD_FINAL_CAP_BASE)
             ? Math.max(1, Math.floor(DONGTIAN_MONSTER_EXP_REWARD_FINAL_CAP_BASE))
             : 150000;
-    var step =
-        typeof DONGTIAN_MONSTER_EXP_REWARD_FINAL_CAP_STEP === "number" && isFinite(DONGTIAN_MONSTER_EXP_REWARD_FINAL_CAP_STEP)
-            ? Math.max(0, Math.floor(DONGTIAN_MONSTER_EXP_REWARD_FINAL_CAP_STEP))
-            : 10000;
-    var finalCap = baseFinal + Math.max(0, f - fromF) * step;
-    var drop = typeof MONSTER_EXP_DROP_MULT === "number" && MONSTER_EXP_DROP_MULT > 0 ? MONSTER_EXP_DROP_MULT : 0.15;
+    if (f <= fromF) return baseFinal;
+    var tiers =
+        typeof DONGTIAN_MONSTER_EXP_REWARD_FINAL_CAP_TIERS !== "undefined" &&
+        DONGTIAN_MONSTER_EXP_REWARD_FINAL_CAP_TIERS &&
+        DONGTIAN_MONSTER_EXP_REWARD_FINAL_CAP_TIERS.length
+            ? DONGTIAN_MONSTER_EXP_REWARD_FINAL_CAP_TIERS
+            : [{ toFloor: Infinity, step: 10000 }];
+    var total = baseFinal;
+    var start = fromF + 1;
+    for (var ti = 0; ti < tiers.length && start <= f; ti++) {
+        var tier = tiers[ti];
+        var end = tier.toFloor;
+        if (!isFinite(end)) end = f;
+        var step = typeof tier.step === "number" && isFinite(tier.step) && tier.step >= 0 ? tier.step : 0;
+        var hi = Math.min(f, end);
+        if (start <= hi) total += (hi - start + 1) * step;
+        start = end + 1;
+    }
+    return total;
+}
+
+function getDongtianMonsterExpRewardExpBaseCapForFloor(floor) {
+    var f = Math.max(1, Math.floor(Number(floor) || 1));
+    var finalCap = getDongtianMonsterExpRewardFinalCapForFloor(f);
+    var drop = getDongtianMonsterExpDropMultForFloor(f);
     return Math.max(1, Math.round(finalCap / drop));
 }
 
@@ -628,7 +685,8 @@ const setEnemyStats = (type, condition) => {
         expBase = Math.round(expBaseCap * dongtianEnemyRandDecimal(0.9, 1.1, rngTag + "|expCap"));
     }
 
-    enemy.rewards.exp = Math.max(1, Math.round(expBase * MONSTER_EXP_DROP_MULT));
+    var expDropMult = getDongtianMonsterExpDropMultForFloor(f);
+    enemy.rewards.exp = Math.max(1, Math.round(expBase * expDropMult));
     // 押镖 / 地脉采矿：击杀不计修为；灵石与掉落照旧（圆满结算也不再发感悟，见 endEscortRun）
     if (isEscortActive || isMiningActive) {
         enemy.rewards.exp = 0;

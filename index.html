@@ -818,6 +818,11 @@
                             <span class="dongtian-hub-menu-card__name">剑灵云游</span>
                             <span class="dongtian-hub-menu-card__hint">剑意 · 浮生</span>
                         </button>
+                        <button type="button" class="dongtian-hub-menu-card dongtian-hub-menu-card--stock" id="dongtianHubMenuStockBtn">
+                            <span class="dongtian-hub-menu-card__glyph" aria-hidden="true">股</span>
+                            <span class="dongtian-hub-menu-card__name">修仙股票</span>
+                            <span class="dongtian-hub-menu-card__hint">灵石 · 仙市</span>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -1344,6 +1349,48 @@
                             </section>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-container modal-container--stock" id="dongtianStockModal" style="display:none;" aria-modal="true" role="dialog" aria-label="修仙股票">
+        <div class="wushen-arena-sheet dongtian-stock-sheet">
+            <header class="wushen-arena-head dongtian-stock-head">
+                <div>
+                    <p class="wushen-arena-eyebrow">洞天 · 灵石仙市</p>
+                    <h3 class="wushen-arena-title">修仙股票</h3>
+                    <p class="wushen-arena-sub" id="dtStockGoldLine">灵石 — · 持仓市值 — · 总资产 —</p>
+                    <p class="wushen-arena-muted dt-stock-tick-line" id="dtStockTickLine">下次行情刷新：—</p>
+                </div>
+                <div class="wushen-arena-head-actions">
+                    <div class="dt-stock-head-balance" id="dtStockHeadBalance" aria-live="polite"></div>
+                    <button type="button" class="btn btn--sm btn--ghost" id="dongtianStockRefreshBtn">刷新</button>
+                    <button type="button" class="btn btn--sm btn--ghost" id="dongtianStockCloseBtn">关闭</button>
+                </div>
+            </header>
+            <div class="dt-stock-tabs" role="tablist" aria-label="修仙股票分类">
+                <button type="button" role="tab" id="dtStockTabTrade" class="dt-stock-tab dt-stock-tab--active" aria-selected="true" aria-controls="dtStockPanelTrade">股票交易</button>
+                <button type="button" role="tab" id="dtStockTabAssets" class="dt-stock-tab" aria-selected="false" aria-controls="dtStockPanelAssets" tabindex="-1">资产详细</button>
+                <button type="button" role="tab" id="dtStockTabList" class="dt-stock-tab" aria-selected="false" aria-controls="dtStockPanelList" tabindex="-1">股票列表</button>
+                <button type="button" role="tab" id="dtStockTabRank" class="dt-stock-tab" aria-selected="false" aria-controls="dtStockPanelRank" tabindex="-1">灵石排行榜</button>
+                <button type="button" role="tab" id="dtStockTabShop" class="dt-stock-tab" aria-selected="false" aria-controls="dtStockPanelShop" tabindex="-1">灵石商场</button>
+            </div>
+            <div class="wushen-arena-body dongtian-stock-body">
+                <div id="dtStockPanelTrade" class="dt-stock-panel dt-stock-panel--active" role="tabpanel" aria-labelledby="dtStockTabTrade" aria-hidden="false">
+                    <div id="dtStockTradeHost"></div>
+                </div>
+                <div id="dtStockPanelAssets" class="dt-stock-panel" role="tabpanel" aria-labelledby="dtStockTabAssets" aria-hidden="true">
+                    <div id="dtStockAssetsHost"></div>
+                </div>
+                <div id="dtStockPanelList" class="dt-stock-panel" role="tabpanel" aria-labelledby="dtStockTabList" aria-hidden="true">
+                    <div id="dtStockListHost"></div>
+                </div>
+                <div id="dtStockPanelRank" class="dt-stock-panel" role="tabpanel" aria-labelledby="dtStockTabRank" aria-hidden="true">
+                    <div id="dtStockRankHost"></div>
+                </div>
+                <div id="dtStockPanelShop" class="dt-stock-panel" role="tabpanel" aria-labelledby="dtStockTabShop" aria-hidden="true">
+                    <div id="dtStockShopHost"></div>
                 </div>
             </div>
         </div>

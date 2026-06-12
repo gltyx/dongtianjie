@@ -57,7 +57,7 @@ let dungeon = {
 var DUNGEON_ENEMY_SCALING_IMPACT = 0.9;
 /** 遗器随机 statMultiplier：敌势 ≤ 分支系数时 (enemyScaling−1) 全额；超过分支的部分再乘 EXCESS_RATIO（不影响邪印、怪物强度） */
 var DUNGEON_ENEMY_SCALING_EQ_BRANCH = 1.12;
-var DUNGEON_ENEMY_SCALING_EQ_EXCESS_RATIO = 0.1;
+var DUNGEON_ENEMY_SCALING_EQ_EXCESS_RATIO = 0.001;
 /** 秘境敌势系数下限：所有减法与读档合并均不得低于此值 */
 var DUNGEON_ENEMY_SCALING_MIN = 1.02;
 /** 第 1 层怪物敌势保底基数；第 n 层怪物保底见 getDungeonEnemyScalingMonsterFloorMinimum（单机与联网均为同一分段步长）（存档可低于保底用于遗器/UI/邪印） */

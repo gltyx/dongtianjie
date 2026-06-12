@@ -1251,7 +1251,7 @@ function dungeonEnemyScalingDeltaForEquipStats(escRaw) {
         isFinite(DUNGEON_ENEMY_SCALING_EQ_EXCESS_RATIO) &&
         DUNGEON_ENEMY_SCALING_EQ_EXCESS_RATIO >= 0
             ? DUNGEON_ENEMY_SCALING_EQ_EXCESS_RATIO
-            : 0.1;
+            : 0.001;
     if (esc <= branch) return Math.max(0, esc - 1);
     return Math.max(0, branch - 1) + (esc - branch) * excessR;
 }
@@ -1274,6 +1274,44 @@ function getEscCeilingForEquipmentDropClamp() {
 }
 
 /**
+ * 遗器掷骰用敌势：max(存档敌势, 本层怪物敌势保底)，再不超过本层敌势上限（与怪物 escForMonster 保底一致）。
+ */
+function resolveEscForEquipRoll(optFloor, escRaw) {
+    var f =
+        typeof optFloor === "number" && isFinite(optFloor) && optFloor >= 1
+            ? Math.floor(optFloor)
+            : typeof dungeon !== "undefined" && dungeon && dungeon.progress && typeof dungeon.progress.floor === "number"
+              ? Math.max(1, Math.floor(Number(dungeon.progress.floor) || 1))
+              : 1;
+    var escCap =
+        typeof getDungeonEnemyScalingCeilingForFloor === "function"
+            ? getDungeonEnemyScalingCeilingForFloor(f)
+            : getEscCeilingForEquipmentDropClamp();
+    var escFloorMin =
+        typeof getDungeonEnemyScalingMonsterFloorMinimum === "function"
+            ? getDungeonEnemyScalingMonsterFloorMinimum(f)
+            : typeof DUNGEON_ENEMY_SCALING_MONSTER_MIN === "number" && isFinite(DUNGEON_ENEMY_SCALING_MONSTER_MIN)
+              ? DUNGEON_ENEMY_SCALING_MONSTER_MIN
+              : 1.12;
+    var escMin =
+        typeof DUNGEON_ENEMY_SCALING_MIN === "number" && isFinite(DUNGEON_ENEMY_SCALING_MIN)
+            ? DUNGEON_ENEMY_SCALING_MIN
+            : 1.02;
+    var esc =
+        typeof escRaw === "number" && isFinite(escRaw)
+            ? escRaw
+            : typeof dungeon !== "undefined" &&
+                dungeon &&
+                dungeon.settings &&
+                typeof dungeon.settings.enemyScaling === "number" &&
+                !isNaN(dungeon.settings.enemyScaling)
+              ? dungeon.settings.enemyScaling
+              : 1.12;
+    esc = Math.max(escMin, esc, escFloorMin);
+    return Math.min(esc, escCap);
+}
+
+/**
  * 与 clamp 一致：各基础属性独立上限（未乘境界档倍率）。
  * @param {number} loopCount 掷骰次数（品质）
  * @param {number} lvl 遗器境界等级
@@ -1291,7 +1329,8 @@ function computeEquipmentDungeonIndependentCaps(loopCount, lvl, optEscCeiling) {
     var M = deltaCap * lvl * escImpactEq;
     var maxHpOne = 45 + 45 * M;
     var maxAtkDefOne = 15 + 15 * M;
-    var secCap = equipSecondaryPerRollCapsFromM(M);
+    /** 身法/吸血/会心/暴伤封顶不受敌势加成（M=0） */
+    var secCap = equipSecondaryPerRollCapsFromM(0);
     return {
         escCap: escCap,
         M: M,
@@ -1870,7 +1909,11 @@ const createEquipment = (craftOpts) => {
     } else {
         equipment.lvl = randomizeNum(effMin, effMax);
     }
-    /** 掷骰用敌势不超过本层上限（满敌势参照）；与存档邪印/溢出解耦 */
+    /** 掷骰用敌势：与怪物保底一致，且不超过本层上限 */
+    var equipFloor =
+        typeof dungeon !== "undefined" && dungeon && dungeon.progress && typeof dungeon.progress.floor === "number"
+            ? Math.max(1, Math.floor(Number(dungeon.progress.floor) || 1))
+            : 1;
     var escRawNum =
         typeof dungeon !== "undefined" &&
         dungeon &&
@@ -1879,13 +1922,13 @@ const createEquipment = (craftOpts) => {
         !isNaN(dungeon.settings.enemyScaling)
             ? dungeon.settings.enemyScaling
             : 1.12;
-    var escCapNum = getEscCeilingForEquipmentDropClamp();
-    var escForEquipRoll = Math.min(escRawNum, escCapNum);
+    var escForEquipRoll = resolveEscForEquipRoll(equipFloor, escRawNum);
 
-    var Mroll = dungeonEnemyScalingDeltaForEquipStats(escForEquipRoll) * equipment.lvl * escImpactEq;
-    var hardCapAtkSpd = Math.min(41, 5.25 + 5.25 * Mroll);
-    var hardCapVamp = Math.min(25, 3 + 3 * Mroll);
-    var hardCapCritR = Math.min(30, 3 + 3 * Mroll);
+    var MrollHp = dungeonEnemyScalingDeltaForEquipStats(escForEquipRoll) * equipment.lvl * escImpactEq;
+    var secCapRoll = equipSecondaryPerRollCapsFromM(0);
+    var hardCapAtkSpd = secCapRoll.atkSpd;
+    var hardCapVamp = secCapRoll.vamp;
+    var hardCapCritR = secCapRoll.critR;
     var secScale =
         typeof EQUIP_SECONDARY_PER_ROLL_CAP_SCALE === "number" && isFinite(EQUIP_SECONDARY_PER_ROLL_CAP_SCALE) && EQUIP_SECONDARY_PER_ROLL_CAP_SCALE > 0
             ? EQUIP_SECONDARY_PER_ROLL_CAP_SCALE
@@ -1896,12 +1939,11 @@ const createEquipment = (craftOpts) => {
         let statType = statTypes[Math.floor(Math.random() * statTypes.length)];
         let capped = false;
 
-        let statMultiplier =
-            dungeonEnemyScalingDeltaForEquipStats(escForEquipRoll) * equipment.lvl * escImpactEq;
+        let statMultiplier = MrollHp;
         let hpScaling = (30 * randomizeDecimal(0.5, 1.5)) + ((30 * randomizeDecimal(0.5, 1.5)) * statMultiplier);
         let atkDefScaling = (15 * randomizeDecimal(0.5, 1.5)) + ((15 * randomizeDecimal(0.5, 1.5)) * statMultiplier);
-        let cdAtkSpdScaling = (3.5 * randomizeDecimal(0.5, 1.5)) + ((3.5 * randomizeDecimal(0.5, 1.5)) * statMultiplier);
-        let crVampScaling = (2 * randomizeDecimal(0.5, 1.5)) + ((2 * randomizeDecimal(0.5, 1.5)) * statMultiplier);
+        let cdAtkSpdScaling = 3.5 * randomizeDecimal(0.5, 1.5);
+        let crVampScaling = 2 * randomizeDecimal(0.5, 1.5);
 
         // Set randomized numbers to respective stats and increment sell value
         if (statType === "hp") {

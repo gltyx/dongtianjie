@@ -62,6 +62,8 @@
         "./assets/js/dongtian-zongmen.js",
         "./assets/js/dongtian-treasure-map-local.js",
         "./assets/js/dongtian-treasure-map.js",
+        "./assets/js/dongtian-stock-local.js",
+        "./assets/js/dongtian-stock.js",
     ];
 
     function loadAt(i) {

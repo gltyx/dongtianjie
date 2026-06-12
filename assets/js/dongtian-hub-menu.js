@@ -146,7 +146,8 @@
         dongtianHubMenuSpiritBeastBtn: "openSpiritBeastRealmModal",
         dongtianHubMenuGhostRealmBtn: "openGhostRealmModal",
         dongtianHubMenuYuqiBtn: "openDongtianYuqiModal",
-        dongtianHubMenuSwordSpiritBtn: "openDongtianSwordSpiritModal"
+        dongtianHubMenuSwordSpiritBtn: "openDongtianSwordSpiritModal",
+        dongtianHubMenuStockBtn: "openDongtianStockModal"
     };
 
     /** 各功能卡片占位；后续模块移植时改为 window.openDongtianXxx 并 closeHubMenuModal */
@@ -165,7 +166,8 @@
         ["dongtianHubMenuSpiritBeastBtn", "灵兽界"],
         ["dongtianHubMenuGhostRealmBtn", "幽魂界"],
         ["dongtianHubMenuWordGuessBtn", "每日猜词"],
-        ["dongtianHubMenuSwordSpiritBtn", "剑灵云游"]
+        ["dongtianHubMenuSwordSpiritBtn", "剑灵云游"],
+        ["dongtianHubMenuStockBtn", "修仙股票"]
     ];
 
     function wireHubMenuCardStub(btnId, label) {
