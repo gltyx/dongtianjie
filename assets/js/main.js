@@ -375,6 +375,11 @@ function clearProfileTabRefreshTimer() {
 
 var DONGTIAN_JIE_CHANGELOG_HTML =
     '<div class="changelog-ver">' +
+    '<h4 class="changelog-h4">2.4 更新</h4>' +
+    "<ul class=\"changelog-list\">" +
+    "<li>降低游戏难度。</li>" +
+    "</ul></div>"+
+  '<div class="changelog-ver changelog-ver--older">' +
     '<h4 class="changelog-h4">2.3 更新</h4>' +
     "<ul class=\"changelog-list\">" +
     "<li><strong>修仙股票：</strong>；可从菜单仙府玉牒 → 休闲进入。30 只仙股、灵石买卖、资产面板、仙股榜与灵石商场；行情每 10 分钟天机波动。</li>" +
@@ -5516,9 +5521,9 @@ const allocationPopup = () => {
     }
     const updateStats = () => {
         stats = {
-            hp: 50 * allocation.hp,
-            atk: 10 * allocation.atk,
-            def: 10 * allocation.def,
+            hp: 100 * allocation.hp,
+            atk: 20 * allocation.atk,
+            def: 20 * allocation.def,
             atkSpd: 0.11 + (0.005 * (allocation.atkSpd - 5))
         }
     }
