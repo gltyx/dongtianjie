@@ -25,6 +25,7 @@
         "./assets/js/player.js",
         "./assets/js/weapon-names-xiuxian.js",
         "./assets/js/enhancement.js",
+        "./assets/js/dongtian-equip-divinity.js",
         "./assets/js/dongtian-material-delta.js",
         "./assets/js/dongtian-forge-local.js",
         "./assets/js/dongtian-forge.js",

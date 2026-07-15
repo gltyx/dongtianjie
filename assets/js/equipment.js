@@ -1074,19 +1074,23 @@ function weaponCategoryLabel(item) {
     return item.category || "";
 }
 
-/** 武器/防具/饰品显示修仙专名；旧存档无专名时回退品类中文 */
+/** 武器/防具/饰品显示修仙专名；有神性词条时后缀「丶词条名」 */
 function weaponOrArmorDisplayName(item) {
     if (!item) return "";
+    var base = "";
     if (item.type === "Weapon" && item.weaponName) {
-        return item.weaponName;
+        base = item.weaponName;
+    } else if ((item.type === "Necklace" || item.type === "Ring") && item.accessoryName) {
+        base = item.accessoryName;
+    } else if (item.type !== "Weapon" && item.type !== "Necklace" && item.type !== "Ring" && item.defenseName) {
+        base = item.defenseName;
+    } else {
+        base = weaponCategoryLabel(item);
     }
-    if ((item.type === "Necklace" || item.type === "Ring") && item.accessoryName) {
-        return item.accessoryName;
+    if (item.divinity && item.divinity.name) {
+        return base + "丶" + String(item.divinity.name);
     }
-    if (item.type !== "Weapon" && item.type !== "Necklace" && item.type !== "Ring" && item.defenseName) {
-        return item.defenseName;
-    }
-    return weaponCategoryLabel(item);
+    return base;
 }
 
 /** 秘境遗器「境界等级」上限：第 f 层不超过 f×本值（含 f×本值）。例：5 → 第1层≤5、第2层≤10。设为 0 关闭按层封顶。 */
@@ -2035,6 +2039,7 @@ const createEquipment = (craftOpts) => {
     } catch (e) {}
     maybeRollEquipmentSetTag(equipment);
     maybeRollEquipmentPassiveSkillBonus(equipment);
+    if (typeof maybeRollEquipmentDivinityAffix === "function") maybeRollEquipmentDivinityAffix(equipment);
     ensureEquipmentInstId(equipment);
     if (!tryPushInventoryEquipment(JSON.stringify(equipment))) {
         return null;
@@ -2067,6 +2072,9 @@ const createEquipment = (craftOpts) => {
     }
     if (equipment.passiveBonus && equipment.passiveBonus.id) {
         itemShow.passiveBonus = { id: equipment.passiveBonus.id, lvl: equipment.passiveBonus.lvl };
+    }
+    if (equipment.divinity && equipment.divinity.id) {
+        itemShow.divinity = equipment.divinity;
     }
     return itemShow;
 }
@@ -3786,6 +3794,7 @@ function buildEquipmentCompareHtml(item, icon, rx) {
         formatEquipmentDivineMetaHtml(item) +
         formatEquipmentPassiveBonusMetaHtml(item) +
         formatArmorClassBonusMetaHtml(item) +
+        (typeof formatEquipmentDivinityMetaHtml === "function" ? formatEquipmentDivinityMetaHtml(item) : "") +
         '<ul class="eq-compare__ul">' +
         newRows +
         "</ul>" +
@@ -3799,6 +3808,7 @@ function buildEquipmentCompareHtml(item, icon, rx) {
         (equippedItem ? formatEquipmentEnchantMetaHtml(equippedItem) : "") +
         (equippedItem ? formatEquipmentDivineMetaHtml(equippedItem) : "") +
         (equippedItem ? formatArmorClassBonusMetaHtml(equippedItem) : "") +
+        (equippedItem && typeof formatEquipmentDivinityMetaHtml === "function" ? formatEquipmentDivinityMetaHtml(equippedItem) : "") +
         (equippedItem && oldRows ? '<ul class="eq-compare__ul">' + oldRows + "</ul>" : "") +
         (equippedItem && typeof formatEquipmentGemSlotsHtml === "function" ? formatEquipmentGemSlotsHtml(equippedItem) : "") +
         (equippedItem && typeof formatEquipmentSetBlockHtml === "function" ? formatEquipmentSetBlockHtml(equippedItem, rx) : "") +
@@ -3809,6 +3819,13 @@ function buildEquipmentCompareHtml(item, icon, rx) {
 
 function buildEquipmentSingleHtml(item, icon, rx) {
     var dMul = typeof getDivineExtractStatMul === "function" ? getDivineExtractStatMul(item) : 1;
+    if (typeof window.getDongtianForgeStatMulForItem === "function") {
+        dMul *= window.getDongtianForgeStatMulForItem(item);
+    }
+    if (typeof window.getDivinityPerItemStatBoostPct === "function") {
+        var divItemPct = window.getDivinityPerItemStatBoostPct(item);
+        if (divItemPct > 0) dMul *= 1 + divItemPct / 100;
+    }
     var lines = item.stats
         .map(function (stat) {
             var k = Object.keys(stat)[0];
@@ -3841,6 +3858,7 @@ function buildEquipmentSingleHtml(item, icon, rx) {
         formatEquipmentDivineMetaHtml(item) +
         formatEquipmentPassiveBonusMetaHtml(item) +
         formatArmorClassBonusMetaHtml(item) +
+        (typeof formatEquipmentDivinityMetaHtml === "function" ? formatEquipmentDivinityMetaHtml(item) : "") +
         "<ul>" +
         lines +
         "</ul>" +
@@ -4488,11 +4506,18 @@ const showItemInfo = (item, icon, type, i) => {
                     : Math.floor(typeof player.lvl === "number" && !isNaN(player.lvl) ? player.lvl : 1);
             var maxEquipLvl = histLvl + 5;
             var itemLvlRaw = item && typeof item.lvl === "number" ? item.lvl : Number(item && item.lvl);
-            var itemLvl = Math.max(1, Math.floor(isFinite(itemLvlRaw) ? itemLvlRaw : 1));
+            var itemLvl =
+                typeof window.getEffectiveEquipmentWearLvl === "function"
+                    ? window.getEffectiveEquipmentWearLvl(item)
+                    : Math.max(1, Math.floor(isFinite(itemLvlRaw) ? itemLvlRaw : 1));
 
             if (itemLvl > maxEquipLvl) {
                 unEquip.disabled = true;
-                unEquip.title = "无法穿戴：超出上限 " + maxEquipLvl + "（历史最高 + 5）。";
+                var wearHint =
+                    typeof window.getEquipmentWearLvlDisplayText === "function"
+                        ? window.getEquipmentWearLvlDisplayText(item)
+                        : itemLvl + " 级";
+                unEquip.title = "无法穿戴：需求 " + wearHint + "，超出上限 " + maxEquipLvl + "（历史最高 + 5）。";
                 unEquip.style.opacity = "0.55";
                 unEquip.style.cursor = "not-allowed";
             }
@@ -4515,14 +4540,21 @@ const showItemInfo = (item, icon, type, i) => {
                 var maxEquipLvl = histLvl + 5;
 
                 var itemLvlRaw = typeof equipItem.lvl === "number" ? equipItem.lvl : Number(equipItem.lvl);
-                var itemLvl = Math.max(1, Math.floor(isFinite(itemLvlRaw) ? itemLvlRaw : 1));
+                var itemLvl =
+                    typeof window.getEffectiveEquipmentWearLvl === "function"
+                        ? window.getEffectiveEquipmentWearLvl(equipItem)
+                        : Math.max(1, Math.floor(isFinite(itemLvlRaw) ? itemLvlRaw : 1));
 
                 if (itemLvl > maxEquipLvl) {
+                    var wearTxt =
+                        typeof window.getEquipmentWearLvlDisplayText === "function"
+                            ? window.getEquipmentWearLvlDisplayText(equipItem)
+                            : itemLvl + " 级";
                     if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
                         defaultModalElement.style.display = "flex";
                         defaultModalElement.innerHTML = `
                             <div class="content">
-                                <p>无法穿戴：此件 ${itemLvl} 级，超出上限 ${maxEquipLvl}（历史最高 + 5）。</p>
+                                <p>无法穿戴：需求 ${wearTxt}，超出上限 ${maxEquipLvl}（历史最高 + 5）。</p>
                                 <div class="button-container">
                                     <button type="button" id="equip-limit-ok">知晓</button>
                                 </div>
@@ -5278,6 +5310,10 @@ const applyEquipmentStats = () => {
         if (typeof window.getDongtianForgeStatMulForItem === "function") {
             dMul *= window.getDongtianForgeStatMulForItem(item);
         }
+        if (typeof window.getDivinityPerItemStatBoostPct === "function") {
+            var divItemPct = window.getDivinityPerItemStatBoostPct(item);
+            if (divItemPct > 0) dMul *= 1 + divItemPct / 100;
+        }
 
         // Iterate through the stats array and update the player stats
         item.stats.forEach(stat => {
@@ -5406,6 +5442,7 @@ const createEquipmentPrint = (condition) => {
                 <h4 class="${item.rarity}">${item.icon}${equipmentRarityLabel(item.rarity)} ${weaponOrArmorDisplayName(item)} ${formatEquipmentRealmWithDivine(item)}</h4>
                 ${formatEquipmentPassiveBonusMetaHtml(item)}
                 ${formatArmorClassBonusMetaHtml(item)}
+                ${typeof formatEquipmentDivinityMetaHtml === "function" ? formatEquipmentDivinityMetaHtml(item) : ""}
                 <ul>
                 ${item.stats.map(stat => {
         var k = Object.keys(stat)[0];

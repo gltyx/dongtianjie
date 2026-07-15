@@ -589,7 +589,11 @@ function getPassiveEffectiveLevel(pid) {
     }
     var eqMap = getEquippedPassiveBonusLevelMap();
     var eqExtra = eqMap && typeof eqMap === "object" ? Math.max(0, Math.floor(Number(eqMap[pidStr] || eqMap[pid]) || 0)) : 0;
-    return Math.min(PASSIVE_LEVEL_MAX, base + eqExtra);
+    var divBonus =
+        typeof window.getDongtianEquipDivinitySectPassiveLvlBonus === "function"
+            ? Math.max(0, Math.floor(Number(window.getDongtianEquipDivinitySectPassiveLvlBonus()) || 0))
+            : 0;
+    return Math.min(PASSIVE_LEVEL_MAX, base + eqExtra + divBonus);
 }
 
 function scalePassiveEffectValueByLevel(v, effLv) {

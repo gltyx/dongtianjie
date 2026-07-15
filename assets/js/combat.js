@@ -3557,7 +3557,15 @@ const playerAttack = () => {
     try {
     // Calculates the damage and attacks the enemy
     let crit;
-    let damage = player.stats.atk * (player.stats.atk / (player.stats.atk + enemy.stats.def));
+    var divCombat =
+        typeof window.getDongtianEquipDivinityCombatMods === "function"
+            ? window.getDongtianEquipDivinityCombatMods()
+            : { armorPenPct: 0, extraDefDmgPct: 0 };
+    var effEnemyDef = enemy.stats.def;
+    if (divCombat.armorPenPct > 0) {
+        effEnemyDef = Math.max(0, effEnemyDef * (1 - divCombat.armorPenPct / 100));
+    }
+    let damage = player.stats.atk * (player.stats.atk / (player.stats.atk + effEnemyDef));
     // Randomizes the damage by 90% - 110%
     let dmgRange = 0.9 + Math.random() * 0.2;
     damage = damage * dmgRange;
@@ -3642,6 +3650,9 @@ const playerAttack = () => {
         }
         if (cp.onHit_damageMultPct) {
             damage = Math.round(damage + (damage * cp.onHit_damageMultPct) / 100);
+        }
+        if (divCombat.extraDefDmgPct > 0) {
+            damage += Math.round((player.stats.def * divCombat.extraDefDmgPct) / 100);
         }
     }
     /** 武神坛：对手快照中的承伤功法（减伤 / 反伤） */
@@ -4172,6 +4183,14 @@ const enemyAttack = () => {
         dmgtype = "点真元伤";
         damage = Math.round(damage);
     }
+    var divEnemyMods =
+        typeof window.getDongtianEquipDivinityCombatMods === "function"
+            ? window.getDongtianEquipDivinityCombatMods()
+            : { enemyAtkReducePct: 0 };
+    if (divEnemyMods.enemyAtkReducePct > 0) {
+        damage = Math.round(damage * (1 - divEnemyMods.enemyAtkReducePct / 100));
+        if (damage < 1) damage = 1;
+    }
     if (cpAtk) {
         if (wushenCrit && cpAtk.onCrit_damageMultPct) {
             damage = Math.round(damage * (1 + cpAtk.onCrit_damageMultPct / 100));
@@ -4229,6 +4248,13 @@ const enemyAttack = () => {
               : {};
     if (cpEn.dmgTakenReducePct) {
         damage = Math.round(damage - (damage * cpEn.dmgTakenReducePct) / 100);
+    }
+    var divTakenMods =
+        typeof window.getDongtianEquipDivinityCombatMods === "function"
+            ? window.getDongtianEquipDivinityCombatMods()
+            : { dmgTakenReducePct: 0, enemyAtkReducePct: 0 };
+    if (divTakenMods.dmgTakenReducePct > 0) {
+        damage = Math.round(damage - (damage * divTakenMods.dmgTakenReducePct) / 100);
     }
     if (
         typeof dungeon !== "undefined" &&

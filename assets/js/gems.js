@@ -238,6 +238,10 @@ function applyEquippedGemsToStats() {
             if (!g || !g.kind) continue;
             var pct = getGemEffectiveBonusPct(g.kind, g.level);
             if (!pct) continue;
+            if (typeof window.getDivinityPerItemGemBoostPct === "function") {
+                var gemDiv = window.getDivinityPerItemGemBoostPct(item);
+                if (gemDiv > 0) pct *= 1 + gemDiv / 100;
+            }
             if (g.kind === "hp") es.gemPctHp += pct;
             else if (g.kind === "atk") es.gemPctAtk += pct;
             else if (g.kind === "def") es.gemPctDef += pct;

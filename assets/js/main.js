@@ -375,11 +375,19 @@ function clearProfileTabRefreshTimer() {
 
 var DONGTIAN_JIE_CHANGELOG_HTML =
     '<div class="changelog-ver">' +
+    '<h4 class="changelog-h4">2.5 更新</h4>' +
+    "<ul class=\"changelog-list\">" +
+    "<li><strong>遗器神性：</strong>4 品及以上掉落约 10% 附加神性词条；独立乘算总机缘，含破甲、护体附伤、受击减伤、单件属性/宝石强化、穿戴降境与门派功法等级等。</li>" +
+    "<li><strong>丹药淬根：</strong>改为账号共用（每种上限 1000）；服用后全部灵宠同步加灵根；新增服丹里程碑全灵根加成（与升星独立相乘）；已服与持有写入单机存档。</li>" +
+    "<li><strong>灵宠升星转移：</strong>消耗 100 碎片，可将一只灵宠全部星数转移到另一只（转出方归零）。</li>" +
+    "<li><strong>摸金陵入口：</strong>仙府玉牒新增「摸金」页签；玩法联网版测试中，入口敬请期待。</li>" +
+    "</ul></div>" +
+    '<div class="changelog-ver changelog-ver--older">' +
     '<h4 class="changelog-h4">2.4 更新</h4>' +
     "<ul class=\"changelog-list\">" +
     "<li>降低游戏难度。</li>" +
-    "</ul></div>"+
-  '<div class="changelog-ver changelog-ver--older">' +
+    "</ul></div>" +
+    '<div class="changelog-ver changelog-ver--older">' +
     '<h4 class="changelog-h4">2.3 更新</h4>' +
     "<ul class=\"changelog-list\">" +
     "<li><strong>修仙股票：</strong>；可从菜单仙府玉牒 → 休闲进入。30 只仙股、灵石买卖、资产面板、仙股榜与灵石商场；行情每 10 分钟天机波动。</li>" +
@@ -5184,8 +5192,17 @@ const calculateStats = () => {
         typeof window.getDongtianLinggenXuemaiMergedPct === "function"
             ? window.getDongtianLinggenXuemaiMergedPct()
             : { hp: 0, atk: 0, def: 0, atkSpd: 0, vamp: 0, critRate: 0, critDmg: 0 };
+    /** 神性（独立层）：再 × (1 + 神性该项% / 100)，与灵根血脉相乘不相加 */
+    var divM =
+        typeof window.getDongtianEquipDivinityMergedPct === "function"
+            ? window.getDongtianEquipDivinityMergedPct()
+            : { hp: 0, atk: 0, def: 0, atkSpd: 0, vamp: 0, critRate: 0, critDmg: 0 };
     function lgxOppScale(key) {
         var v = Number(lgxM[key]) || 0;
+        return 1 + v / 100;
+    }
+    function divOppScale(key) {
+        var v = Number(divM[key]) || 0;
         return 1 + v / 100;
     }
     /** 宗门等级：仅气血机缘在灵根血脉之后独立 ×(1+等级×50%)，与血脉相乘不相加 */
@@ -5202,9 +5219,9 @@ const calculateStats = () => {
         var v = zmTech && zmTech[key];
         return v > 1 && isFinite(v) ? v : 1;
     }
-    var hpPctEff = hpPctTotal * lgxOppScale("hp") * zmHpOppScale * techScale("hp");
-    var atkPctEff = atkPctTotal * lgxOppScale("atk") * techScale("atk");
-    var defPctEff = defPctTotal * lgxOppScale("def") * techScale("def");
+    var hpPctEff = hpPctTotal * lgxOppScale("hp") * divOppScale("hp") * zmHpOppScale * techScale("hp");
+    var atkPctEff = atkPctTotal * lgxOppScale("atk") * divOppScale("atk") * techScale("atk");
+    var defPctEff = defPctTotal * lgxOppScale("def") * divOppScale("def") * techScale("def");
 
     var hpEquipMult = 1 + (hpPctEff * hpFlatOppFrac) / 100;
     var atkEquipMult = 1 + (atkPctEff * atkFlatOppFrac) / 100;
@@ -5307,7 +5324,7 @@ const calculateStats = () => {
         aspBonusPctRow = Math.min(aspBonusPctRow, 0.01);
     }
 
-    var aspBonusPctEff = aspBonusPctRow * lgxOppScale("atkSpd") * techScale("atkSpd");
+    var aspBonusPctEff = aspBonusPctRow * lgxOppScale("atkSpd") * divOppScale("atkSpd") * techScale("atkSpd");
 
     player.stats.hpMax = Math.round(
         (playerHpBase + playerHpBase * (hpPctEff / 100)) +
@@ -5336,7 +5353,7 @@ const calculateStats = () => {
             : 0.1;
     player.stats.atkSpd =
         atkSpdRaw <= capAsp ? atkSpdRaw : capAsp + (atkSpdRaw - capAsp) * overMult;
-    var vampOppEff = vampOppPreLgx * lgxOppScale("vamp") * techScale("vamp");
+    var vampOppEff = vampOppPreLgx * lgxOppScale("vamp") * divOppScale("vamp") * techScale("vamp");
     player.stats.vamp = playerVampBase + vampOppEff;
     if (
         typeof player !== "undefined" &&
@@ -5393,9 +5410,9 @@ const calculateStats = () => {
     ) {
         player.stats.vamp = 0.001;
     }
-    var critRateOppEff = critRateOppPreLgx * lgxOppScale("critRate") * techScale("critRate");
+    var critRateOppEff = critRateOppPreLgx * lgxOppScale("critRate") * divOppScale("critRate") * techScale("critRate");
     player.stats.critRate = playerCRateBase + critRateOppEff;
-    var critDmgOppEff = critDmgOppPreLgx * lgxOppScale("critDmg") * techScale("critDmg");
+    var critDmgOppEff = critDmgOppPreLgx * lgxOppScale("critDmg") * divOppScale("critDmg") * techScale("critDmg");
     player.stats.critDmg = playerCDmgBase + critDmgOppEff;
 
     // Caps attack speed to 2.5

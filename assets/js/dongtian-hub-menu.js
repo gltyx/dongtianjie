@@ -56,15 +56,17 @@
         var tabs = [
             document.getElementById("dongtianHubMenuTabFeatures"),
             document.getElementById("dongtianHubMenuTabDungeons"),
-            document.getElementById("dongtianHubMenuTabCasual")
+            document.getElementById("dongtianHubMenuTabCasual"),
+            document.getElementById("dongtianHubMenuTabMojin")
         ];
         var panels = [
             document.getElementById("dongtianHubMenuPanelFeatures"),
             document.getElementById("dongtianHubMenuPanelDungeons"),
-            document.getElementById("dongtianHubMenuPanelCasual")
+            document.getElementById("dongtianHubMenuPanelCasual"),
+            document.getElementById("dongtianHubMenuPanelMojin")
         ];
-        if (which < 0 || which > 2) which = 0;
-        for (var i = 0; i < 3; i++) {
+        if (which < 0 || which > 3) which = 0;
+        for (var i = 0; i < 4; i++) {
             var on = i === which;
             if (tabs[i]) {
                 tabs[i].classList.toggle("dongtian-hub-menu-tab--active", on);
@@ -82,7 +84,12 @@
         var hub = document.getElementById("dongtianHubMenuModal");
         if (!hub || hub._dongtianHubMenuTabsFullyWired) return;
         hub._dongtianHubMenuTabsFullyWired = true;
-        var ids = ["dongtianHubMenuTabFeatures", "dongtianHubMenuTabDungeons", "dongtianHubMenuTabCasual"];
+        var ids = [
+            "dongtianHubMenuTabFeatures",
+            "dongtianHubMenuTabDungeons",
+            "dongtianHubMenuTabCasual",
+            "dongtianHubMenuTabMojin"
+        ];
         for (var i = 0; i < ids.length; i++) {
             (function (idx) {
                 var btn = document.getElementById(ids[idx]);
@@ -167,8 +174,14 @@
         ["dongtianHubMenuGhostRealmBtn", "幽魂界"],
         ["dongtianHubMenuWordGuessBtn", "每日猜词"],
         ["dongtianHubMenuSwordSpiritBtn", "剑灵云游"],
-        ["dongtianHubMenuStockBtn", "修仙股票"]
+        ["dongtianHubMenuStockBtn", "修仙股票"],
+        ["dongtianHubMenuMojinBtn", "摸金陵"]
     ];
+
+    /** 摸金陵等尚未落地玩法：固定提示文案（不走「即将开放」通用句） */
+    var HUB_CARD_FIXED_TOAST = {
+        dongtianHubMenuMojinBtn: "此模式联网版本在测试中，敬请期待"
+    };
 
     function wireHubMenuCardStub(btnId, label) {
         var btn = document.getElementById(btnId);
@@ -176,10 +189,15 @@
         btn._dongtianHubCardBound = true;
         var netOpenKey = HUB_NET_MARKET_CARDS[btnId];
         var featureOpenKey = HUB_FEATURE_OPEN[btnId];
+        var fixedToast = HUB_CARD_FIXED_TOAST[btnId];
         btn.addEventListener("click", function (ev) {
             if (ev) {
                 ev.preventDefault();
                 ev.stopPropagation();
+            }
+            if (fixedToast) {
+                hubMenuToast(fixedToast, false);
+                return;
             }
             if (featureOpenKey && typeof window[featureOpenKey] === "function") {
                 closeHubMenuModal();

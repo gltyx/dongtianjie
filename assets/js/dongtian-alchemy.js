@@ -93,6 +93,130 @@
         { id: "huanshen", herbKey: "lt_herb_huanxinlan", herbAmount: 30, hours: 24, pillKey: "dt_pill_huanshen", pillName: "幻神丹" },
     ];
 
+    var PILL_USE_CAP_GLOBAL = 1000;
+    var PILL_MILESTONE_BONUSES = [
+        [1000, 5.0],
+        [900, 4.5],
+        [800, 4.0],
+        [700, 3.5],
+        [600, 3.0],
+        [400, 2.5],
+        [300, 2.0],
+        [200, 1.5],
+        [100, 1.0],
+        [90, 0.9],
+        [80, 0.8],
+        [70, 0.7],
+        [60, 0.6],
+        [50, 0.5],
+        [40, 0.4],
+        [30, 0.3],
+        [20, 0.2],
+        [10, 0.1],
+        [1, 0.05],
+    ];
+
+    function getPillMinUsedCount(uses) {
+        var min = Infinity;
+        for (var i = 0; i < RECIPES.length; i++) {
+            var pk = RECIPES[i].pillKey;
+            var n = Math.floor(Number(uses && uses[pk]) || 0);
+            if (n < min) min = n;
+        }
+        return min === Infinity ? 0 : min;
+    }
+
+    function getPillMilestoneBonusPct(uses) {
+        var minUsed = getPillMinUsedCount(uses);
+        for (var i = 0; i < PILL_MILESTONE_BONUSES.length; i++) {
+            if (minUsed >= PILL_MILESTONE_BONUSES[i][0]) return PILL_MILESTONE_BONUSES[i][1];
+        }
+        return 0;
+    }
+
+    function getGlobalPillUsesForUi() {
+        if (typeof player === "undefined" || !player) return {};
+        if (typeof ensureGlobalPillUses === "function") return ensureGlobalPillUses(player);
+        if (!player.dongtianAlchemy || typeof player.dongtianAlchemy !== "object") return {};
+        var uses = player.dongtianAlchemy.pillUses;
+        return uses && typeof uses === "object" ? uses : {};
+    }
+
+    function formatPillMilestonePct(pct) {
+        if (!pct) return "—";
+        return "+" + Math.round(pct * 100) + "%";
+    }
+
+    function getCurrentMilestoneThreshold(minUsed) {
+        var n = Math.floor(Number(minUsed) || 0);
+        for (var i = 0; i < PILL_MILESTONE_BONUSES.length; i++) {
+            if (n >= PILL_MILESTONE_BONUSES[i][0]) return PILL_MILESTONE_BONUSES[i][0];
+        }
+        return 0;
+    }
+
+    function buildPillMilestonePreviewHtml(uses) {
+        var minUsed = getPillMinUsedCount(uses);
+        var currentPct = getPillMilestoneBonusPct(uses);
+        var currentThreshold = getCurrentMilestoneThreshold(minUsed);
+        var rows = [];
+        for (var i = PILL_MILESTONE_BONUSES.length - 1; i >= 0; i--) {
+            var threshold = PILL_MILESTONE_BONUSES[i][0];
+            var bonus = PILL_MILESTONE_BONUSES[i][1];
+            var reached = minUsed >= threshold;
+            var isCurrent = reached && threshold === currentThreshold;
+            var rowClass = "dt-pet-pill-milestone-row";
+            if (reached) rowClass += " dt-pet-pill-milestone-row--done";
+            if (isCurrent) rowClass += " dt-pet-pill-milestone-row--current";
+            rows.push(
+                '<tr class="' +
+                rowClass +
+                '"><td>全部 ' +
+                RECIPES.length +
+                " 种 ≥ <strong>" +
+                threshold +
+                "</strong></td><td>" +
+                formatPillMilestonePct(bonus) +
+                "</td><td>" +
+                (isCurrent ? "当前" : reached ? "已达成" : "未达成") +
+                "</td></tr>"
+            );
+        }
+        return (
+            '<p class="dt-pet-pill-milestone-pop__intro">以 <strong>全部 ' +
+            RECIPES.length +
+            " 种丹药</strong>各自已服数量的<strong>最低值</strong>判定里程碑；达成后全灵宠<strong>全灵根</strong>获得百分比加成（与升星同类，独立叠加）。</p>" +
+            '<p class="dt-pet-pill-milestone-pop__status">当前最低已服 <strong>' +
+            minUsed +
+            "</strong> 枚 · 当前里程碑加成 <strong>" +
+            formatPillMilestonePct(currentPct) +
+            "</strong></p>" +
+            '<table class="dt-pet-pill-milestone-pop__table">' +
+            "<thead><tr><th>达成条件</th><th>全灵根加成</th><th>状态</th></tr></thead>" +
+            "<tbody>" +
+            rows.join("") +
+            "</tbody></table>"
+        );
+    }
+
+    function renderPetPillMilestonePreview(uses) {
+        var body = document.getElementById("dongtianPetPillMilestonePopBody");
+        if (!body) return;
+        body.innerHTML = buildPillMilestonePreviewHtml(uses || getGlobalPillUsesForUi());
+    }
+
+    function openPetPillMilestonePreview() {
+        var pop = document.getElementById("dongtianPetPillMilestonePop");
+        if (!pop) return;
+        renderPetPillMilestonePreview(getGlobalPillUsesForUi());
+        pop.style.display = "flex";
+    }
+
+    function closePetPillMilestonePreview() {
+        var pop = document.getElementById("dongtianPetPillMilestonePop");
+        if (pop) pop.style.display = "none";
+    }
+
     var PILL_DESC = {
         dt_pill_jinling: "金系灵根 +1",
         dt_pill_muling: "木系灵根 +1",
@@ -567,12 +691,14 @@
             return;
         }
         if (typeof normalizePetObject === "function") normalizePetObject(pet);
-        var uses = pet.pillUses && typeof pet.pillUses === "object" ? pet.pillUses : {};
+        var uses = getGlobalPillUsesForUi();
+        var minUsed = getPillMinUsedCount(uses);
+        var milestonePct = getPillMilestoneBonusPct(uses);
         var rows = RECIPES.map(function (r) {
             var pk = r.pillKey;
             var inv = getMatCount(pk);
             var u = Math.floor(Number(uses[pk]) || 0);
-            var cap = 20;
+            var cap = PILL_USE_CAP_GLOBAL;
             var full = u >= cap;
             var desc = PILL_DESC[pk] || "";
             return (
@@ -617,9 +743,16 @@
             );
         }).join("");
         inner.innerHTML =
-            '<p class="dt-pet-pill-head">为 <strong>' +
-            escHtml(pet.name) +
-            "</strong> 淬炼灵根 · 每种丹药每只灵宠至多服用 20 枚。</p>" +
+            '<p class="dt-pet-pill-head">服丹淬根 · 每种丹药账号共用上限 <strong>' +
+            PILL_USE_CAP_GLOBAL +
+            "</strong> 枚，每次服用全部灵宠灵根同步提升。</p>" +
+            '<p class="dt-pet-pill-milestone">里程碑判定：<strong>全部 ' +
+            RECIPES.length +
+            " 种丹药均已服数量取最低值</strong>（当前最低 <strong>" +
+            minUsed +
+            "</strong> 枚）· 当前全灵根加成 <strong>" +
+            formatPillMilestonePct(milestonePct) +
+            "</strong>（与升星同类，独立加成）</p>" +
             '<table class="dt-pet-pill-table">' +
             "<thead><tr><th>丹药</th><th>功效</th><th>持有</th><th>已服</th><th>操作</th></tr></thead>" +
             "<tbody>" +
@@ -627,11 +760,12 @@
             "</tbody></table>";
         modal.style.display = "flex";
         modal.setAttribute("data-pet-id", petId);
+        renderPetPillMilestonePreview(uses);
         inner.querySelectorAll(".dt-pet-pill-use").forEach(function (btn) {
             btn.onclick = function () {
                 if (btn.disabled) return;
                 var pk = btn.getAttribute("data-pill-key");
-                api("POST", "/api/dongtian-alchemy/use-pill", { petId: petId, pillKey: pk })
+                api("POST", "/api/dongtian-alchemy/use-pill", { pillKey: pk })
                     .then(function (res) {
                         if (!res || !res.ok) {
                             toast((res && res.message) || "服用失败", true);
@@ -678,6 +812,7 @@
     };
 
     window.closeDongtianPetPillModal = function () {
+        closePetPillMilestonePreview();
         var modal = document.getElementById("dongtianPetPillModal");
         if (modal) modal.style.display = "none";
     };
@@ -704,6 +839,23 @@
         if (petPillClose && !petPillClose._dtAlchBound) {
             petPillClose._dtAlchBound = true;
             petPillClose.onclick = window.closeDongtianPetPillModal;
+        }
+        var petPillMilestoneBtn = document.getElementById("dongtianPetPillMilestoneBtn");
+        if (petPillMilestoneBtn && !petPillMilestoneBtn._dtAlchBound) {
+            petPillMilestoneBtn._dtAlchBound = true;
+            petPillMilestoneBtn.onclick = function () {
+                openPetPillMilestonePreview();
+            };
+        }
+        var petPillMilestonePopClose = document.getElementById("dongtianPetPillMilestonePopClose");
+        if (petPillMilestonePopClose && !petPillMilestonePopClose._dtAlchBound) {
+            petPillMilestonePopClose._dtAlchBound = true;
+            petPillMilestonePopClose.onclick = closePetPillMilestonePreview;
+        }
+        var petPillMilestonePopBackdrop = document.getElementById("dongtianPetPillMilestonePopBackdrop");
+        if (petPillMilestonePopBackdrop && !petPillMilestonePopBackdrop._dtAlchBound) {
+            petPillMilestonePopBackdrop._dtAlchBound = true;
+            petPillMilestonePopBackdrop.onclick = closePetPillMilestonePreview;
         }
     };
 })();

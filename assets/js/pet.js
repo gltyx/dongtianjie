@@ -13,6 +13,45 @@ var PET_STAR_MAX = 10;
 var PET_STAR_ROOT_BONUS_PER = 0.1;
 /** 第 N 颗星（0 起）消耗的灵宠碎片 */
 var PET_STAR_UPGRADE_COSTS = [10, 50, 100, 200, 300, 400, 500, 600, 800, 1000];
+/** 升星转移：将全部星数转给另一只灵宠，固定消耗碎片 */
+var PET_STAR_TRANSFER_COST = 100;
+/** 服丹里程碑：全部 12 种丹药已服数量取最低值判定 */
+var PILL_USE_CAP_GLOBAL = 1000;
+var PILL_MILESTONE_BONUSES = [
+    [1000, 5.0],
+    [900, 4.5],
+    [800, 4.0],
+    [700, 3.5],
+    [600, 3.0],
+    [400, 2.5],
+    [300, 2.0],
+    [200, 1.5],
+    [100, 1.0],
+    [90, 0.9],
+    [80, 0.8],
+    [70, 0.7],
+    [60, 0.6],
+    [50, 0.5],
+    [40, 0.4],
+    [30, 0.3],
+    [20, 0.2],
+    [10, 0.1],
+    [1, 0.05],
+];
+var PILL_TYPE_KEYS = [
+    "dt_pill_jinling",
+    "dt_pill_shuiling",
+    "dt_pill_tuling",
+    "dt_pill_muling",
+    "dt_pill_huoling",
+    "dt_pill_fengling",
+    "dt_pill_jinteng",
+    "dt_pill_xuanbing",
+    "dt_pill_xinlian",
+    "dt_pill_longxue",
+    "dt_pill_leishen",
+    "dt_pill_huanshen",
+];
 /** 灵宠自定义名最长字数 */
 var PET_NAME_MAX_LEN = 12;
 
@@ -423,10 +462,58 @@ function getPetStarRootMult(pet) {
     return 1 + getPetStarLevel(pet) * PET_STAR_ROOT_BONUS_PER;
 }
 
-/** 升星后的有效灵根（用于机缘成长与面板展示） */
+function getPillMinUsedCount(uses) {
+    var min = Infinity;
+    for (var i = 0; i < PILL_TYPE_KEYS.length; i++) {
+        var n = Math.floor(Number(uses && uses[PILL_TYPE_KEYS[i]]) || 0);
+        if (n < min) min = n;
+    }
+    return min === Infinity ? 0 : min;
+}
+
+function getPillMilestoneBonusPct(uses) {
+    var minUsed = getPillMinUsedCount(uses);
+    for (var i = 0; i < PILL_MILESTONE_BONUSES.length; i++) {
+        if (minUsed >= PILL_MILESTONE_BONUSES[i][0]) return PILL_MILESTONE_BONUSES[i][1];
+    }
+    return 0;
+}
+
+function ensureGlobalPillUses(playerObj) {
+    if (!playerObj || typeof playerObj !== "object") return {};
+    if (!playerObj.dongtianAlchemy || typeof playerObj.dongtianAlchemy !== "object") playerObj.dongtianAlchemy = {};
+    var al = playerObj.dongtianAlchemy;
+    if (!al.pillUses || typeof al.pillUses !== "object") al.pillUses = {};
+    if (al._pillUsesMigrated) return al.pillUses;
+    var pets = Array.isArray(playerObj.petCollection) ? playerObj.petCollection : [];
+    for (var i = 0; i < pets.length; i++) {
+        var pet = pets[i];
+        if (!pet || !pet.pillUses || typeof pet.pillUses !== "object") continue;
+        var keys = Object.keys(pet.pillUses);
+        for (var j = 0; j < keys.length; j++) {
+            var pk = keys[j];
+            var n = Math.floor(Number(pet.pillUses[pk]) || 0);
+            if (n <= 0) continue;
+            al.pillUses[pk] = Math.floor(Number(al.pillUses[pk]) || 0) + n;
+        }
+    }
+    al._pillUsesMigrated = true;
+    return al.pillUses;
+}
+
+function getGlobalPillUses() {
+    if (typeof player === "undefined" || !player) return {};
+    return ensureGlobalPillUses(player);
+}
+
+function getPetPillMilestoneRootMult() {
+    return 1 + getPillMilestoneBonusPct(getGlobalPillUses());
+}
+
+/** 升星与服丹里程碑后的有效灵根（用于机缘成长与面板展示） */
 function getPetRootsForCalc(pet) {
     if (!pet || !pet.roots) return null;
-    var mult = getPetStarRootMult(pet);
+    var mult = getPetStarRootMult(pet) * getPetPillMilestoneRootMult();
     if (mult === 1) return pet.roots;
     var out = {};
     for (var i = 0; i < PET_ROOT_KEYS.length; i++) {
@@ -473,6 +560,305 @@ function canUpgradePetStar(pet) {
         return { ok: false, message: "灵宠碎片不足（需 " + cost + "，当前 " + frags + "）。" };
     }
     return { ok: true, cost: cost, nextStars: stars + 1 };
+}
+
+function canTransferPetStars(fromPetId, toPetId) {
+    ensurePlayerPetCollection();
+    if (!fromPetId || !toPetId || fromPetId === toPetId) {
+        return { ok: false, message: "须选择不同的转出与接收灵宠。" };
+    }
+    var fromPet = getPetById(fromPetId);
+    var toPet = getPetById(toPetId);
+    if (!fromPet) return { ok: false, message: "未找到转出灵宠。" };
+    if (!toPet) return { ok: false, message: "未找到接收灵宠。" };
+    normalizePetObject(fromPet);
+    normalizePetObject(toPet);
+    if (fromPet.locked) return { ok: false, message: "转出灵宠已锁定，无法转移升星。" };
+    var fromStars = getPetStarLevel(fromPet);
+    if (fromStars < 1) return { ok: false, message: "转出灵宠尚无星数可转移。" };
+    var frags = ensurePlayerPetFragments();
+    if (frags < PET_STAR_TRANSFER_COST) {
+        return {
+            ok: false,
+            message: "灵宠碎片不足（需 " + PET_STAR_TRANSFER_COST + "，当前 " + frags + "）。",
+        };
+    }
+    return { ok: true, fromStars: fromStars, cost: PET_STAR_TRANSFER_COST };
+}
+
+function applyPetStarTransferLocal(fromPetId, toPetId) {
+    var check = canTransferPetStars(fromPetId, toPetId);
+    if (!check.ok) return check;
+    var fromPet = getPetById(fromPetId);
+    var toPet = getPetById(toPetId);
+    normalizePetObject(fromPet);
+    normalizePetObject(toPet);
+    var transferStars = getPetStarLevel(fromPet);
+    fromPet.stars = 0;
+    toPet.stars = Math.min(PET_STAR_MAX, transferStars);
+    player.petFragments = ensurePlayerPetFragments() - check.cost;
+    rebuildPetBonusStats(fromPet);
+    rebuildPetBonusStats(toPet);
+    return {
+        ok: true,
+        fromStars: 0,
+        toStars: toPet.stars,
+        petFragments: player.petFragments,
+        fromPetId: fromPetId,
+        toPetId: toPetId,
+    };
+}
+
+function showPetStarTransferFirstConfirm(fromPetId, toPetId, fromStars) {
+    if (typeof defaultModalElement === "undefined" || !defaultModalElement) return;
+    var fp = getPetById(fromPetId);
+    var toPet = getPetById(toPetId);
+    if (!fp || !toPet) return;
+    normalizePetObject(fp);
+    normalizePetObject(toPet);
+    defaultModalElement.style.display = "flex";
+    defaultModalElement.innerHTML =
+        '<div class="content pet-star-transfer">' +
+        '<p class="pet-star-transfer__lead">确认转移升星？</p>' +
+        '<ul class="pet-rel-confirm__info" role="list">' +
+        "<li><strong>转出</strong>：" +
+        escapeHtmlForPetModal(fp.name || "无名") +
+        "（" +
+        fromStars +
+        " 星 → 0 星）</li>" +
+        "<li><strong>接收</strong>：" +
+        escapeHtmlForPetModal(toPet.name || "无名") +
+        "（" +
+        getPetStarLevel(toPet) +
+        " 星 → " +
+        fromStars +
+        " 星）</li>" +
+        "<li><strong>消耗</strong>：灵宠碎片 ×" +
+        PET_STAR_TRANSFER_COST +
+        "</li></ul>" +
+        '<div class="button-container">' +
+        '<button type="button" id="pet-star-transfer-yes">确认转移</button>' +
+        '<button type="button" id="pet-star-transfer-no">取消</button></div></div>';
+    var yesBtn = document.getElementById("pet-star-transfer-yes");
+    var noBtn = document.getElementById("pet-star-transfer-no");
+    if (yesBtn) {
+        yesBtn.onclick = function () {
+            showPetStarTransferSecondConfirm(fromPetId, toPetId, fromStars);
+        };
+    }
+    if (noBtn) {
+        noBtn.onclick = function () {
+            defaultModalElement.style.display = "none";
+            defaultModalElement.innerHTML = "";
+        };
+    }
+}
+
+function showPetStarTransferSecondConfirm(fromPetId, toPetId, fromStars) {
+    if (typeof defaultModalElement === "undefined" || !defaultModalElement) return;
+    var fp = getPetById(fromPetId);
+    var toPet = getPetById(toPetId);
+    if (!fp || !toPet) return;
+    normalizePetObject(fp);
+    normalizePetObject(toPet);
+    defaultModalElement.style.display = "flex";
+    defaultModalElement.innerHTML =
+        '<div class="content pet-star-transfer pet-star-transfer--final">' +
+        '<p class="pet-star-transfer__lead pet-star-transfer__lead--warn">再次确认：升星转移不可撤销</p>' +
+        '<p class="pet-star-transfer__note">转出方星数将清零，接收方将被覆盖为转出方当前星数，并消耗 <strong>' +
+        PET_STAR_TRANSFER_COST +
+        "</strong> 片灵宠碎片。</p>" +
+        '<ul class="pet-rel-confirm__info" role="list">' +
+        "<li><strong>转出</strong>：" +
+        escapeHtmlForPetModal(fp.name || "无名") +
+        " → 0 星</li>" +
+        "<li><strong>接收</strong>：" +
+        escapeHtmlForPetModal(toPet.name || "无名") +
+        " → " +
+        fromStars +
+        " 星</li></ul>" +
+        '<div class="button-container">' +
+        '<button type="button" class="btn btn--accent" id="pet-star-transfer-final-yes">确定转移</button>' +
+        '<button type="button" id="pet-star-transfer-final-back">返回上一步</button>' +
+        '<button type="button" id="pet-star-transfer-final-no">取消</button></div></div>';
+    var finalYes = document.getElementById("pet-star-transfer-final-yes");
+    var finalBack = document.getElementById("pet-star-transfer-final-back");
+    var finalNo = document.getElementById("pet-star-transfer-final-no");
+    if (finalYes) {
+        finalYes.onclick = function () {
+            executePetStarTransfer(fromPetId, toPetId);
+        };
+    }
+    if (finalBack) {
+        finalBack.onclick = function () {
+            showPetStarTransferFirstConfirm(fromPetId, toPetId, fromStars);
+        };
+    }
+    if (finalNo) {
+        finalNo.onclick = function () {
+            defaultModalElement.style.display = "none";
+            defaultModalElement.innerHTML = "";
+        };
+    }
+}
+
+function openPetStarTransferModal(fromPetId) {
+    ensurePlayerPetCollection();
+    var fromPet = getPetById(fromPetId);
+    if (!fromPet) return;
+    normalizePetObject(fromPet);
+    var check;
+    if (fromPet.locked) {
+        check = { ok: false, message: "转出灵宠已锁定，无法转移升星。" };
+    } else if (getPetStarLevel(fromPet) < 1) {
+        check = { ok: false, message: "当前灵宠尚无星数可转移。" };
+    } else if (ensurePlayerPetFragments() < PET_STAR_TRANSFER_COST) {
+        check = {
+            ok: false,
+            message: "灵宠碎片不足（需 " + PET_STAR_TRANSFER_COST + "，当前 " + ensurePlayerPetFragments() + "）。",
+        };
+    } else {
+        check = { ok: true };
+    }
+    if (!check.ok) {
+        if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
+            defaultModalElement.style.display = "flex";
+            defaultModalElement.innerHTML =
+                '<div class="content"><p>' +
+                escapeHtmlForPetModal(check.message || "无法转移升星。") +
+                '</p><div class="button-container"><button type="button" id="pet-star-transfer-fail-ok">知晓</button></div></div>';
+            var failOk = document.querySelector("#pet-star-transfer-fail-ok");
+            if (failOk) {
+                failOk.onclick = function () {
+                    defaultModalElement.style.display = "none";
+                    defaultModalElement.innerHTML = "";
+                };
+            }
+        }
+        return;
+    }
+    var targets = [];
+    for (var i = 0; i < player.petCollection.length; i++) {
+        var pet = player.petCollection[i];
+        if (!pet || pet.id === fromPetId) continue;
+        normalizePetObject(pet);
+        targets.push(pet);
+    }
+    if (!targets.length) {
+        if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
+            defaultModalElement.style.display = "flex";
+            defaultModalElement.innerHTML =
+                '<div class="content"><p>栏中尚无其他灵宠可接收升星。</p><div class="button-container"><button type="button" id="pet-star-transfer-empty-ok">知晓</button></div></div>';
+            var emptyOk = document.querySelector("#pet-star-transfer-empty-ok");
+            if (emptyOk) {
+                emptyOk.onclick = function () {
+                    defaultModalElement.style.display = "none";
+                    defaultModalElement.innerHTML = "";
+                };
+            }
+        }
+        return;
+    }
+    var fromStars = getPetStarLevel(fromPet);
+    var listHtml = targets
+        .map(function (tp) {
+            var tpStars = getPetStarLevel(tp);
+            var realm =
+                typeof cultivationRealmLabel === "function" ? cultivationRealmLabel(tp.lvl) : "Lv." + tp.lvl;
+            var ageName =
+                typeof getPetAgeTierDef === "function" ? getPetAgeTierDef(tp.ageTier).name : "";
+            var typeZh =
+                typeof PET_TYPE_LABEL_ZH !== "undefined" && PET_TYPE_LABEL_ZH[tp.type]
+                    ? PET_TYPE_LABEL_ZH[tp.type]
+                    : tp.type;
+            return (
+                '<li class="pet-star-transfer__item">' +
+                '<div class="pet-star-transfer__meta">' +
+                "<strong>" +
+                escapeHtmlForPetModal(tp.name || "无名") +
+                "</strong> · " +
+                escapeHtmlForPetModal(ageName) +
+                " · " +
+                escapeHtmlForPetModal(typeZh) +
+                " · " +
+                escapeHtmlForPetModal(realm) +
+                '<br><span class="pet-ui__muted">当前 ' +
+                tpStars +
+                " 星 → 接收后 " +
+                fromStars +
+                " 星</span></div>" +
+                '<button type="button" class="btn btn--sm btn--accent pet-star-transfer-pick" data-from-pet-id="' +
+                fromPetId +
+                '" data-to-pet-id="' +
+                tp.id +
+                '">选择</button></li>'
+            );
+        })
+        .join("");
+    if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
+        defaultModalElement.style.display = "flex";
+        defaultModalElement.innerHTML =
+            '<div class="content pet-star-transfer">' +
+            '<p class="pet-star-transfer__lead">将 <strong>' +
+            escapeHtmlForPetModal(fromPet.name || "无名") +
+            "</strong> 的 <strong>" +
+            fromStars +
+            " 星</strong> 全部转移给另一只灵宠（转出方变为 0 星，消耗灵宠碎片 ×" +
+            PET_STAR_TRANSFER_COST +
+            "）。</p>" +
+            '<ul class="pet-star-transfer__list" role="list">' +
+            listHtml +
+            "</ul>" +
+            '<div class="button-container"><button type="button" id="pet-star-transfer-cancel">取消</button></div></div>';
+        defaultModalElement.querySelectorAll(".pet-star-transfer-pick").forEach(function (btn) {
+            btn.onclick = function () {
+                var fromId = btn.getAttribute("data-from-pet-id");
+                var toId = btn.getAttribute("data-to-pet-id");
+                showPetStarTransferFirstConfirm(fromId, toId, fromStars);
+            };
+        });
+        var cancelBtn = document.getElementById("pet-star-transfer-cancel");
+        if (cancelBtn) {
+            cancelBtn.onclick = function () {
+                defaultModalElement.style.display = "none";
+                defaultModalElement.innerHTML = "";
+            };
+        }
+    }
+}
+
+function executePetStarTransfer(fromPetId, toPetId) {
+    if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
+        defaultModalElement.style.display = "none";
+        defaultModalElement.innerHTML = "";
+    }
+    var check = canTransferPetStars(fromPetId, toPetId);
+    if (!check.ok) {
+        if (typeof defaultModalElement !== "undefined" && defaultModalElement) {
+            defaultModalElement.style.display = "flex";
+            defaultModalElement.innerHTML =
+                '<div class="content"><p>' +
+                escapeHtmlForPetModal(check.message || "无法转移升星。") +
+                '</p><div class="button-container"><button type="button" id="pet-star-transfer-block-ok">知晓</button></div></div>';
+            var blockOk = document.querySelector("#pet-star-transfer-block-ok");
+            if (blockOk) {
+                blockOk.onclick = function () {
+                    defaultModalElement.style.display = "none";
+                    defaultModalElement.innerHTML = "";
+                };
+            }
+        }
+        return;
+    }
+    var localTransfer = applyPetStarTransferLocal(fromPetId, toPetId);
+    if (!(localTransfer && localTransfer.ok)) return;
+    if (toPetId) petPanelFocusId = toPetId;
+    if (typeof saveData === "function") {
+        saveData({ forceCloud: true, playerMutation: true });
+    }
+    if (typeof calculateStats === "function") calculateStats();
+    if (typeof playerLoadStats === "function") playerLoadStats();
+    renderPetPanel();
 }
 
 function petRootAptitudeMult(statKey, roots) {
@@ -1688,6 +2074,17 @@ function renderPetPanel() {
                   starCost +
                   " 片）</button></p>"
                 : '<p class="pet-ui__muted" style="margin-top:8px">已满星。</p>') +
+            (starsLv > 0
+                ? '<p style="margin-top:8px"><button type="button" class="btn btn--sm btn--ghost pet-btn-star-transfer" data-pet-id="' +
+                  p.id +
+                  '"' +
+                  (frags < PET_STAR_TRANSFER_COST
+                      ? ' disabled title="碎片不足，转移升星需 ' + PET_STAR_TRANSFER_COST + ' 片"'
+                      : ' title="将全部 ' + starsLv + ' 星转移给其他灵宠（转出方变 0 星，消耗 ' + PET_STAR_TRANSFER_COST + ' 片）"') +
+                  ">转移升星（需 " +
+                  PET_STAR_TRANSFER_COST +
+                  " 片）</button></p>"
+                : "") +
             "</div>";
         var realmLine =
             typeof cultivationRealmLabel === "function" ? cultivationRealmLabel(p.lvl) : "境界 Lv." + p.lvl;
@@ -1841,8 +2238,8 @@ function renderPetPanel() {
             rootsHtml +
             "</div>" +
             (starsLv > 0
-                ? '<p class="pet-ui__muted pet-ui__roots-hint">升星加成已计入上方灵根；每星全灵根 +10%。</p>'
-                : '<p class="pet-ui__muted pet-ui__roots-hint">五行灵根于认主时凝定；可在「丹药」中以炼丹阁所得灵丹淬炼，同丹每只灵宠至多二十枚。</p>') +
+                ? '<p class="pet-ui__muted pet-ui__roots-hint">升星与服丹里程碑加成已计入上方灵根；每星全灵根 +10%，里程碑与升星独立相乘。</p>'
+                : '<p class="pet-ui__muted pet-ui__roots-hint">五行灵根于认主时凝定；可在「丹药」中以炼丹阁所得灵丹淬炼（账号共用，每次全灵宠同步提升）。</p>') +
             "</div>" +
             peqStarRow +
             bonusCombatBlock +
@@ -2016,6 +2413,16 @@ function initPetModalClickDelegation() {
             if (starUp.disabled) return;
             var sid = starUp.getAttribute("data-pet-id");
             if (sid) upgradePetStar(sid);
+            return;
+        }
+
+        var starTransfer = ev.target.closest(".pet-btn-star-transfer");
+        if (starTransfer) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            if (starTransfer.disabled) return;
+            var transferFromId = starTransfer.getAttribute("data-pet-id");
+            if (transferFromId) openPetStarTransferModal(transferFromId);
             return;
         }
 

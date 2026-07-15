@@ -9,7 +9,8 @@ var INITIAL_FURNACE_COUNT = 3;
 var MAX_FURNACE_COUNT = 12;
 var UNLOCK_FURNACE_COST = 100;
 var UNLOCK_FURNACE_COST_MATERIAL = 'enhance_stone';
-var PILL_USE_CAP_PER_PET = 20;
+/** 每种丹药账号共用服用上限（写入单机存档 dongtianAlchemy.pillUses） */
+var PILL_USE_CAP_GLOBAL = 1000;
 
 var RECIPES = [
   { id: 'jinling', herbKey: 'lt_herb_huiqicao', herbAmount: 30, hours: 6, pillKey: 'dt_pill_jinling', pillName: '金灵丹' },
@@ -96,9 +97,13 @@ function nextFurnaceUnlockNeedHist(currentFurnaceCount) {
 
 function syncAlchemyLegacy(player, al) {
   if (!player || !al) return;
+  var prev = player.dongtianAlchemy && typeof player.dongtianAlchemy === 'object' ? player.dongtianAlchemy : {};
+  var pillUses = prev.pillUses && typeof prev.pillUses === 'object' ? prev.pillUses : {};
   player.dongtianAlchemy = {
     furnaceCount: al.furnaces.length,
     slots: al.activeJobs.slice(),
+    pillUses: pillUses,
+    _pillUsesMigrated: !!prev._pillUsesMigrated,
   };
 }
 
@@ -178,6 +183,32 @@ function recipesPayload() {
 function ensurePetPillUses(pet) {
   if (!pet || typeof pet !== 'object') return;
   if (!pet.pillUses || typeof pet.pillUses !== 'object') pet.pillUses = {};
+}
+
+/** 账号共用已服计数；旧档按各宠 pet.pillUses 累加迁入一次 */
+function ensureGlobalPillUses(player) {
+  if (!player || typeof player !== 'object') return {};
+  ensureAlchemyShape(player);
+  if (!player.dongtianAlchemy || typeof player.dongtianAlchemy !== 'object') {
+    player.dongtianAlchemy = { furnaceCount: INITIAL_FURNACE_COUNT, slots: [], pillUses: {} };
+  }
+  var al = player.dongtianAlchemy;
+  if (!al.pillUses || typeof al.pillUses !== 'object') al.pillUses = {};
+  if (al._pillUsesMigrated) return al.pillUses;
+  var pets = Array.isArray(player.petCollection) ? player.petCollection : [];
+  for (var i = 0; i < pets.length; i++) {
+    var pet = pets[i];
+    if (!pet || !pet.pillUses || typeof pet.pillUses !== 'object') continue;
+    var keys = Object.keys(pet.pillUses);
+    for (var j = 0; j < keys.length; j++) {
+      var pk = keys[j];
+      var n = Math.floor(Number(pet.pillUses[pk]) || 0);
+      if (n <= 0) continue;
+      al.pillUses[pk] = Math.floor(Number(al.pillUses[pk]) || 0) + n;
+    }
+  }
+  al._pillUsesMigrated = true;
+  return al.pillUses;
 }
 
 function applyPillRootsToPet(pet, pillKey) {
@@ -311,33 +342,37 @@ function handlePost(path, body) {
     if (hist < UNLOCK_HIST_LEVEL) {
       return { ok: false, message: '历史境界未满 ' + UNLOCK_HIST_LEVEL + '，无法使用炼丹阁丹药' };
     }
-    var petId = String(body.petId || '').trim();
     var pillKeyU = String(body.pillKey || '').trim();
-    if (!petId) return { ok: false, message: '缺少灵宠' };
     if (!VALID_PILL_KEYS[pillKeyU]) return { ok: false, message: '丹药类型无效' };
     var inv = Math.floor(Number(mats[pillKeyU]) || 0);
     if (inv < 1) return { ok: false, message: '行囊中没有该丹药' };
     var pets = player.petCollection;
-    if (!Array.isArray(pets)) return { ok: false, message: '灵宠数据异常' };
-    var pet = null;
-    for (var pi = 0; pi < pets.length; pi++) {
-      if (pets[pi] && String(pets[pi].id) === petId) {
-        pet = pets[pi];
-        break;
-      }
+    if (!Array.isArray(pets) || !pets.length) return { ok: false, message: '尚无灵宠可服用' };
+    var pillUses = ensureGlobalPillUses(player);
+    var used = Math.floor(Number(pillUses[pillKeyU]) || 0);
+    if (used >= PILL_USE_CAP_GLOBAL) {
+      return { ok: false, message: '该丹药已达账号共用上限（' + PILL_USE_CAP_GLOBAL + '）' };
     }
-    if (!pet) return { ok: false, message: '未找到该灵宠' };
-    ensurePetPillUses(pet);
-    var used = Math.floor(Number(pet.pillUses[pillKeyU]) || 0);
-    if (used >= PILL_USE_CAP_PER_PET) {
-      return { ok: false, message: '该灵宠对此丹药已达使用上限（' + PILL_USE_CAP_PER_PET + '）' };
-    }
-    if (!pet.roots || typeof pet.roots !== 'object') pet.roots = {};
     mats[pillKeyU] = inv - 1;
-    pet.pillUses[pillKeyU] = used + 1;
-    applyPillRootsToPet(pet, pillKeyU);
+    pillUses[pillKeyU] = used + 1;
+    var applied = 0;
+    for (var pi = 0; pi < pets.length; pi++) {
+      var pet = pets[pi];
+      if (!pet) continue;
+      ensurePetPillUses(pet);
+      if (!pet.roots || typeof pet.roots !== 'object') pet.roots = {};
+      applyPillRootsToPet(pet, pillKeyU);
+      if (typeof rebuildPetBonusStats === 'function') rebuildPetBonusStats(pet);
+      applied++;
+    }
+    if (applied < 1) return { ok: false, message: '尚无灵宠可服用' };
+    syncAlchemyLegacy(player, al);
     persistLocalSave();
-    return { ok: true, message: '丹药已化入灵根' };
+    return {
+      ok: true,
+      message: '丹药已化入全部灵宠灵根（' + applied + ' 只）',
+      pillUses: pillUses,
+    };
   }
 
   return { ok: false, message: '未知操作' };

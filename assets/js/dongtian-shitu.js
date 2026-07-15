@@ -458,6 +458,7 @@
         '<button type="button" role="tab" id="dongtianHubMenuTabFeatures" class="dongtian-hub-menu-tab dongtian-hub-menu-tab--active" data-hub-tab="0" aria-selected="true" aria-controls="dongtianHubMenuPanelFeatures">功能</button>',
         '<button type="button" role="tab" id="dongtianHubMenuTabDungeons" class="dongtian-hub-menu-tab" data-hub-tab="1" aria-selected="false" aria-controls="dongtianHubMenuPanelDungeons" tabindex="-1">副本</button>',
         '<button type="button" role="tab" id="dongtianHubMenuTabCasual" class="dongtian-hub-menu-tab" data-hub-tab="2" aria-selected="false" aria-controls="dongtianHubMenuPanelCasual" tabindex="-1">休闲</button>',
+        '<button type="button" role="tab" id="dongtianHubMenuTabMojin" class="dongtian-hub-menu-tab" data-hub-tab="3" aria-selected="false" aria-controls="dongtianHubMenuPanelMojin" tabindex="-1">摸金</button>',
         "</div>",
         '<div class="dongtian-hub-menu-tabpanels">',
         '<div id="dongtianHubMenuPanelFeatures" class="dongtian-hub-menu-panel dongtian-hub-menu-panel--active" role="tabpanel" aria-labelledby="dongtianHubMenuTabFeatures" aria-hidden="false">',
@@ -483,6 +484,11 @@
         '<div class="dongtian-hub-menu-grid dongtian-hub-menu-grid--casual" role="navigation" aria-label="洞天休闲">',
         '<button type="button" class="dongtian-hub-menu-card dongtian-hub-menu-card--word" id="dongtianHubMenuWordGuessBtn"><span class="dongtian-hub-menu-card__glyph" aria-hidden="true">谜</span><span class="dongtian-hub-menu-card__name">每日猜词</span><span class="dongtian-hub-menu-card__hint">天机 · 一字</span></button>',
         '<button type="button" class="dongtian-hub-menu-card dongtian-hub-menu-card--yunyou" id="dongtianHubMenuSwordSpiritBtn"><span class="dongtian-hub-menu-card__glyph" aria-hidden="true">游</span><span class="dongtian-hub-menu-card__name">剑灵云游</span><span class="dongtian-hub-menu-card__hint">剑意 · 浮生</span></button>',
+        '<button type="button" class="dongtian-hub-menu-card dongtian-hub-menu-card--stock" id="dongtianHubMenuStockBtn"><span class="dongtian-hub-menu-card__glyph" aria-hidden="true">股</span><span class="dongtian-hub-menu-card__name">修仙股票</span><span class="dongtian-hub-menu-card__hint">灵石 · 仙市</span></button>',
+        "</div></div>",
+        '<div id="dongtianHubMenuPanelMojin" class="dongtian-hub-menu-panel" role="tabpanel" aria-labelledby="dongtianHubMenuTabMojin" aria-hidden="true">',
+        '<div class="dongtian-hub-menu-grid dongtian-hub-menu-grid--mojin" role="navigation" aria-label="摸金">',
+        '<button type="button" class="dongtian-hub-menu-card dongtian-hub-menu-card--mojin" id="dongtianHubMenuMojinBtn"><span class="dongtian-hub-menu-card__glyph" aria-hidden="true">陵</span><span class="dongtian-hub-menu-card__name">摸金陵</span><span class="dongtian-hub-menu-card__hint">探墓 · 夺宝 · 图鉴</span></button>',
         "</div></div></div></div>"
     ].join("");
 
@@ -490,6 +496,8 @@
         var hub = document.getElementById("dongtianHubMenuModal");
         if (!hub) return false;
         if (!document.getElementById("dongtianHubMenuTabFeatures")) return true;
+        if (!document.getElementById("dongtianHubMenuTabMojin")) return true;
+        if (!document.getElementById("dongtianHubMenuMojinBtn")) return true;
         if (!hub.querySelector(".dongtian-hub-menu-tabs")) return true;
         if (!hub.querySelector(".dongtian-hub-menu-tabpanels")) return true;
         return false;
@@ -510,15 +518,17 @@
         var tabs = [
             document.getElementById("dongtianHubMenuTabFeatures"),
             document.getElementById("dongtianHubMenuTabDungeons"),
-            document.getElementById("dongtianHubMenuTabCasual")
+            document.getElementById("dongtianHubMenuTabCasual"),
+            document.getElementById("dongtianHubMenuTabMojin")
         ];
         var panels = [
             document.getElementById("dongtianHubMenuPanelFeatures"),
             document.getElementById("dongtianHubMenuPanelDungeons"),
-            document.getElementById("dongtianHubMenuPanelCasual")
+            document.getElementById("dongtianHubMenuPanelCasual"),
+            document.getElementById("dongtianHubMenuPanelMojin")
         ];
-        if (which < 0 || which > 2) which = 0;
-        for (i = 0; i < 3; i++) {
+        if (which < 0 || which > 3) which = 0;
+        for (i = 0; i < 4; i++) {
             var on = i === which;
             if (tabs[i]) {
                 tabs[i].classList.toggle("dongtian-hub-menu-tab--active", on);
@@ -533,14 +543,19 @@
     }
 
     /**
-     * 标签切换：在三个 tab 按钮上用捕获阶段直接绑定。iframe/移动端下委托到 tablist 可能点不中右侧标签
+     * 标签切换：在 tab 按钮上用捕获阶段直接绑定。iframe/移动端下委托到 tablist 可能点不中右侧标签
      *（被标题栏或下层 stacking 挡住）；capture + 提高 z-index 更稳。
      */
     function ensureHubMenuTabsWired() {
         var hub = document.getElementById("dongtianHubMenuModal");
         if (!hub || hub._dongtianHubMenuTabsFullyWired) return;
         hub._dongtianHubMenuTabsFullyWired = true;
-        var ids = ["dongtianHubMenuTabFeatures", "dongtianHubMenuTabDungeons", "dongtianHubMenuTabCasual"];
+        var ids = [
+            "dongtianHubMenuTabFeatures",
+            "dongtianHubMenuTabDungeons",
+            "dongtianHubMenuTabCasual",
+            "dongtianHubMenuTabMojin"
+        ];
         var i;
         for (i = 0; i < ids.length; i++) {
             (function (idx) {
@@ -566,6 +581,11 @@
         var m = document.getElementById("dongtianHubMenuModal");
         if (!m) return;
         var repaired = repairDongtianHubMenuShellIfStale();
+        if (repaired && typeof window.initDongtianHubMenuUI === "function") {
+            try {
+                window.initDongtianHubMenuUI();
+            } catch (eHubRepairMenu) {}
+        }
         if (repaired && typeof window.initDongtianStandaloneHubUi === "function") {
             try {
                 window.initDongtianStandaloneHubUi();

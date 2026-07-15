@@ -1571,6 +1571,37 @@ button:active {
     color: var(--text-muted);
 }
 
+/* 神性词条 */
+.eq-meta-divinity {
+    margin: 0.12rem 0 0.38rem;
+    font-size: 0.62rem;
+    line-height: 1.45;
+    letter-spacing: 0.02em;
+}
+
+.eq-meta-divinity__label {
+    color: rgba(180, 170, 200, 0.78);
+    font-size: 0.58rem;
+    font-weight: 600;
+}
+
+.eq-meta-divinity__name {
+    font-size: 0.66rem;
+    font-weight: 700;
+}
+
+.eq-meta-divinity__desc {
+    font-size: 0.58rem;
+    font-weight: 500;
+    opacity: 0.92;
+}
+
+.dt-div-blue { color: #5eb8e8; }
+.dt-div-purple { color: #b48cff; }
+.dt-div-pink { color: #ff8ec8; }
+.dt-div-orange { color: #ffb04a; }
+.dt-div-red { color: #ff6b6b; }
+
 .eq-set-block {
     margin: 0.35rem 0 0.45rem;
     font-size: 0.58rem;
@@ -4538,6 +4569,70 @@ body.pet-modal-open {
 }
 
 .modal-container .content.pet-rel-confirm .button-container {
+    margin-top: var(--space-md);
+}
+
+.modal-container .content.pet-star-transfer {
+    max-width: min(28rem, 100%);
+    padding: var(--space-md) var(--space-lg);
+    box-sizing: border-box;
+    gap: var(--space-sm);
+}
+
+.pet-star-transfer__lead {
+    margin: 0;
+    padding: 0 var(--space-xs);
+    font-size: 0.95rem;
+    line-height: 1.5;
+    color: var(--text);
+}
+
+.pet-star-transfer__list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+}
+
+.pet-star-transfer__item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.55rem 0.65rem;
+    background: rgba(0, 0, 0, 0.22);
+    border: 1px solid rgba(212, 175, 55, 0.22);
+    border-radius: var(--radius-sm);
+}
+
+.pet-star-transfer__meta {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.88rem;
+    line-height: 1.45;
+    word-break: break-word;
+}
+
+.pet-star-transfer--final .pet-star-transfer__lead--warn {
+    color: #ffb4a8;
+    font-weight: 600;
+}
+
+.pet-star-transfer__note {
+    margin: 0;
+    padding: 0 var(--space-xs);
+    font-size: 0.88rem;
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.82);
+}
+
+.modal-container .content.pet-star-transfer--final .button-container {
+    flex-wrap: wrap;
+}
+
+.modal-container .content.pet-star-transfer .button-container {
     margin-top: var(--space-md);
 }
 
@@ -12499,6 +12594,109 @@ button.molong-hall-locked,
     padding: 12px 14px 8px;
     border-bottom: 1px solid rgba(100, 170, 140, 0.25);
 }
+.modal-sheet__head--pet-pills .modal-sheet__head-actions {
+    margin-top: 0.1rem;
+    display: flex;
+    gap: 0.35rem;
+    align-items: center;
+}
+.dt-pet-pill-milestone-btn {
+    border-color: rgba(120, 200, 160, 0.35) !important;
+    color: rgba(180, 240, 210, 0.95) !important;
+    background: rgba(20, 50, 40, 0.55) !important;
+}
+.dt-pet-pill-milestone-pop {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+}
+.modal-sheet--pet-pills {
+    position: relative;
+}
+.dt-pet-pill-milestone-pop__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(4, 12, 10, 0.72);
+    backdrop-filter: blur(2px);
+}
+.dt-pet-pill-milestone-pop__sheet {
+    position: relative;
+    z-index: 1;
+    width: min(100%, 26rem);
+    max-height: min(78vh, 34rem);
+    display: flex;
+    flex-direction: column;
+    border-radius: 14px;
+    border: 1px solid rgba(120, 200, 160, 0.35);
+    background: linear-gradient(165deg, rgba(18, 42, 34, 0.98), rgba(8, 18, 16, 0.99));
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+}
+.dt-pet-pill-milestone-pop__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 12px 14px 8px;
+    border-bottom: 1px solid rgba(100, 170, 140, 0.22);
+}
+.dt-pet-pill-milestone-pop__eyebrow {
+    margin: 0;
+    font-size: 0.62rem;
+    letter-spacing: 0.12em;
+    color: rgba(150, 210, 180, 0.85);
+}
+.dt-pet-pill-milestone-pop__title {
+    margin: 0.15rem 0 0;
+    font-size: 1rem;
+    color: rgba(220, 245, 235, 0.96);
+}
+.dt-pet-pill-milestone-pop__body {
+    overflow: auto;
+    padding: 10px 14px 14px;
+}
+.dt-pet-pill-milestone-pop__intro,
+.dt-pet-pill-milestone-pop__status {
+    margin: 0 0 0.55rem;
+    font-size: 0.76rem;
+    line-height: 1.45;
+    color: rgba(210, 235, 225, 0.9);
+}
+.dt-pet-pill-milestone-pop__status {
+    color: rgba(180, 240, 210, 0.95);
+}
+.dt-pet-pill-milestone-pop__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.74rem;
+}
+.dt-pet-pill-milestone-pop__table th,
+.dt-pet-pill-milestone-pop__table td {
+    border-bottom: 1px solid rgba(80, 130, 110, 0.2);
+    padding: 0.35rem 0.3rem;
+    text-align: left;
+    color: rgba(210, 235, 225, 0.88);
+}
+.dt-pet-pill-milestone-pop__table th {
+    color: rgba(160, 210, 185, 0.95);
+    font-weight: 600;
+}
+.dt-pet-pill-milestone-row--done td {
+    color: rgba(190, 235, 210, 0.92);
+}
+.dt-pet-pill-milestone-row--current td {
+    background: rgba(80, 160, 120, 0.16);
+    color: rgba(220, 255, 235, 0.98);
+    font-weight: 600;
+}
+.dt-pet-pill-milestone {
+    font-size: 0.78rem;
+    margin: 0 0 0.65rem;
+    color: rgba(180, 230, 205, 0.92);
+}
 .dt-pet-pill-head {
     font-size: 0.85rem;
     margin: 0 0 0.65rem;
@@ -14680,6 +14878,17 @@ button.molong-hall-locked,
 .dongtian-hub-menu-card--stock .dongtian-hub-menu-card__glyph {
     color: rgba(255, 220, 120, 0.32);
     text-shadow: 0 0 18px rgba(220, 180, 60, 0.45);
+}
+.dongtian-hub-menu-card--mojin {
+    border-color: rgba(180, 130, 70, 0.45);
+    background: linear-gradient(145deg, rgba(40, 26, 12, 0.85), rgba(18, 10, 6, 0.92));
+}
+.dongtian-hub-menu-card--mojin .dongtian-hub-menu-card__glyph {
+    color: #d4a855;
+    text-shadow: 0 0 18px rgba(212, 168, 85, 0.45);
+}
+.dongtian-hub-menu-grid--mojin {
+    grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
 }
 .dongtian-lingtian-sheet {
     max-width: 34rem;

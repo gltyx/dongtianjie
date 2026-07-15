@@ -557,6 +557,10 @@ const playerLoadStats = () => {
         typeof window.getDongtianLinggenXuemaiMergedPct === "function"
             ? window.getDongtianLinggenXuemaiMergedPct()
             : { hp: 0, atk: 0, def: 0, atkSpd: 0, vamp: 0, critRate: 0, critDmg: 0 };
+    var divPct =
+        typeof window.getDongtianEquipDivinityMergedPct === "function"
+            ? window.getDongtianEquipDivinityMergedPct()
+            : { hp: 0, atk: 0, def: 0, atkSpd: 0, vamp: 0, critRate: 0, critDmg: 0 };
     var zmHpOppScale =
         typeof window.getDongtianZongmenOpportunityScale === "function"
             ? window.getDongtianZongmenOpportunityScale()
@@ -579,15 +583,17 @@ const playerLoadStats = () => {
         if (!isFinite(xt)) xt = 0;
         return (Number(a) + Number(b) + Number(c) + x + xt).toFixed(2).replace(rx, "$1");
     };
-    /** 灵根血脉 + 宗门等级（仅气血机缘）：展示值 = 机缘同类总和 × (1 + (灵根+血脉)该项% ÷ 100) × 宗门气血倍率 */
+    /** 灵根血脉：×(1+灵根血脉%)；神性独立：再 ×(1+神性%)；宗门等级（仅气血）再乘 */
     var sLgx = function (a, b, c, d, t, lgxKey) {
         var x = Number(d);
         if (!isFinite(x)) x = 0;
         var xt = Number(t);
         if (!isFinite(xt)) xt = 0;
         var base = Number(a) + Number(b) + Number(c) + x + xt;
-        var mul = Number(lgxPct[lgxKey]) || 0;
-        if (mul) base *= 1 + mul / 100;
+        var mulLgx = Number(lgxPct[lgxKey]) || 0;
+        var mulDiv = Number(divPct[lgxKey]) || 0;
+        if (mulLgx) base *= 1 + mulLgx / 100;
+        if (mulDiv) base *= 1 + mulDiv / 100;
         if (lgxKey === "hp" && zmHpOppScale > 1) base *= zmHpOppScale;
         var ts = techScaleUi(lgxKey);
         if (ts > 1) base *= ts;
@@ -687,6 +693,18 @@ const playerLoadStats = () => {
     if (lgxSum !== 0) {
         setNote +=
             '<p class="stat-card__note stat-card__note--set">已含<strong>灵根血脉</strong>：下列数值为「机缘同类总和 + 机缘总和×（灵根%+血脉%）÷100」。</p>';
+    }
+    var divSum =
+        (divPct.hp || 0) +
+        (divPct.atk || 0) +
+        (divPct.def || 0) +
+        (divPct.atkSpd || 0) +
+        (divPct.vamp || 0) +
+        (divPct.critRate || 0) +
+        (divPct.critDmg || 0);
+    if (divSum !== 0) {
+        setNote +=
+            '<p class="stat-card__note stat-card__note--set">已含<strong>遗器神性</strong>：在灵根血脉之后独立再 ×（1 + 神性该项% ÷ 100）。</p>';
     }
     if (zmHpOppScale > 1) {
         setNote +=
