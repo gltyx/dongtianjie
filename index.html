@@ -731,6 +731,7 @@
                 <button type="button" role="tab" id="dongtianHubMenuTabFeatures" class="dongtian-hub-menu-tab dongtian-hub-menu-tab--active" data-hub-tab="0" aria-selected="true" aria-controls="dongtianHubMenuPanelFeatures">功能</button>
                 <button type="button" role="tab" id="dongtianHubMenuTabDungeons" class="dongtian-hub-menu-tab" data-hub-tab="1" aria-selected="false" aria-controls="dongtianHubMenuPanelDungeons" tabindex="-1">副本</button>
                 <button type="button" role="tab" id="dongtianHubMenuTabCasual" class="dongtian-hub-menu-tab" data-hub-tab="2" aria-selected="false" aria-controls="dongtianHubMenuPanelCasual" tabindex="-1">休闲</button>
+                <button type="button" role="tab" id="dongtianHubMenuTabMojin" class="dongtian-hub-menu-tab" data-hub-tab="3" aria-selected="false" aria-controls="dongtianHubMenuPanelMojin" tabindex="-1">摸金</button>
             </div>
             <div class="dongtian-hub-menu-tabpanels">
                 <div id="dongtianHubMenuPanelFeatures" class="dongtian-hub-menu-panel dongtian-hub-menu-panel--active" role="tabpanel" aria-labelledby="dongtianHubMenuTabFeatures" aria-hidden="false">
@@ -822,6 +823,15 @@
                             <span class="dongtian-hub-menu-card__glyph" aria-hidden="true">股</span>
                             <span class="dongtian-hub-menu-card__name">修仙股票</span>
                             <span class="dongtian-hub-menu-card__hint">灵石 · 仙市</span>
+                        </button>
+                    </div>
+                </div>
+                <div id="dongtianHubMenuPanelMojin" class="dongtian-hub-menu-panel" role="tabpanel" aria-labelledby="dongtianHubMenuTabMojin" aria-hidden="true">
+                    <div class="dongtian-hub-menu-grid dongtian-hub-menu-grid--mojin" role="navigation" aria-label="摸金">
+                        <button type="button" class="dongtian-hub-menu-card dongtian-hub-menu-card--mojin" id="dongtianHubMenuMojinBtn">
+                            <span class="dongtian-hub-menu-card__glyph" aria-hidden="true">陵</span>
+                            <span class="dongtian-hub-menu-card__name">摸金陵</span>
+                            <span class="dongtian-hub-menu-card__hint">探墓 · 夺宝 · 图鉴</span>
                         </button>
                     </div>
                 </div>
@@ -1179,9 +1189,25 @@
                     <p class="modal-sheet__eyebrow modal-sheet__eyebrow--pet">淬灵</p>
                     <h3 class="modal-sheet__title--pet">丹药淬根</h3>
                 </div>
-                <button type="button" class="icon-btn" id="dongtianPetPillCloseBtn" title="关闭" aria-label="关闭"><i class="fa fa-xmark"></i></button>
+                <div class="modal-sheet__head-actions">
+                    <button type="button" class="icon-btn dt-pet-pill-milestone-btn" id="dongtianPetPillMilestoneBtn" title="里程碑加成预览" aria-label="里程碑加成预览"><i class="fa fa-medal"></i></button>
+                    <button type="button" class="icon-btn" id="dongtianPetPillCloseBtn" title="关闭" aria-label="关闭"><i class="fa fa-xmark"></i></button>
+                </div>
             </div>
             <div class="scrollable" id="dongtianPetPillBody" style="padding:12px 14px 18px;"></div>
+            <div class="dt-pet-pill-milestone-pop" id="dongtianPetPillMilestonePop" style="display:none;" aria-modal="true" role="dialog" aria-label="服丹里程碑加成预览">
+                <div class="dt-pet-pill-milestone-pop__backdrop" id="dongtianPetPillMilestonePopBackdrop"></div>
+                <div class="dt-pet-pill-milestone-pop__sheet">
+                    <header class="dt-pet-pill-milestone-pop__head">
+                        <div>
+                            <p class="dt-pet-pill-milestone-pop__eyebrow">服丹里程碑</p>
+                            <h4 class="dt-pet-pill-milestone-pop__title">全灵根加成预览</h4>
+                        </div>
+                        <button type="button" class="icon-btn" id="dongtianPetPillMilestonePopClose" title="关闭预览" aria-label="关闭预览"><i class="fa fa-xmark"></i></button>
+                    </header>
+                    <div class="dt-pet-pill-milestone-pop__body" id="dongtianPetPillMilestonePopBody"></div>
+                </div>
+            </div>
         </div>
     </div>
 
